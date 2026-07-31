@@ -103,8 +103,8 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
     p0 = (cx + scale * (-0.30), cy + scale * (-0.47))  # short tip
     p1 = (cx, cy)  # outer vertex
     p2 = (cx + scale * 0.50, cy + scale * (-0.98))  # long tip (top)
-    # Target Adobe reference arm weight (between previous fat 0.055 and too-thin 0.028)
-    half = scale * 0.038
+    # Match required Adobe reference — deliberately slim arms
+    half = scale * 0.025
 
     def dir_vec(a, b):
         dx, dy = b[0] - a[0], b[1] - a[1]
@@ -136,7 +136,7 @@ def _draw_hard_3d_check(img: Image.Image, cx: float, cy: float, scale: float) ->
     """Opaque green check + hard black bottom-right extrusion (no full outline)."""
     poly = _check_polygon(cx, cy, scale)
     # Very slim bottom-right ledge only
-    extrude = [(x + scale * 0.018, y + scale * 0.018) for x, y in poly]
+    extrude = [(x + scale * 0.014, y + scale * 0.014) for x, y in poly]
 
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
