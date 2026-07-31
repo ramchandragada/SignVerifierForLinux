@@ -13,27 +13,35 @@ Lightweight Linux tool to **cryptographically verify** PDF digital signatures (A
 
 Amazon’s line *“accept this NOC only if the Digital signature can be verified”* means the **original signed PDF** must still verify. Upload that original — not a stamped/printed lookalike.
 
-## Install with .deb (company PCs)
+## Install with .deb (Linux Mint XFCE — company PCs)
 
-**Always download the newest build** from Releases (every push to `main` publishes a new `.deb`):
-
+**Always download the newest build:**  
 https://github.com/ramchandragada/SignVerifierForLinux/releases/latest
 
+| Your PC | File to download |
+|---------|------------------|
+| **Linux Mint 22.x XFCE** (based on Ubuntu 24.04) | `*_amd64_mint22.deb` |
+| **Linux Mint 21.x XFCE** (based on Ubuntu 22.04) | `*_amd64_mint21.deb` |
+
+Check version: Menu → **System Info**, or:
 ```bash
-# Example after downloading the latest .deb:
-sudo apt install ./pdf-sign-verifier_*_amd64.deb
-pdf-sign-verifier          # opens web UI
-# or find "PDF Sign Verifier" in the app menu
+cat /etc/linuxmint/info
 ```
 
-To update later: download the new `.deb` from the same Releases page and install again (`apt` will upgrade the package).
+```bash
+sudo apt install ./pdf-sign-verifier_*_amd64_mint22.deb   # or mint21
+pdf-sign-verifier
+```
+
+Then open **PDF Sign Verifier** from the XFCE application menu, or run `pdf-sign-verifier` in a terminal.
+
+To update later: download the new `.deb` from the same Releases page and install again.
 
 Rebuild locally:
 
 ```bash
-./packaging/build-deb.sh --docker   # Ubuntu 24.04 via Docker
-# or on Ubuntu 24.04:
-./packaging/build-deb.sh
+./packaging/build-deb.sh --docker   # Mint 22 / Ubuntu 24.04 via Docker
+DEB_SUFFIX=mint22 ./packaging/build-deb.sh
 ```
 
 ## Clone (any PC)

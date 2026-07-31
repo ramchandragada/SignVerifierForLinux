@@ -13,7 +13,7 @@ VERSION="${VERSION:-1.0.0}"
 ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
 DIST_DIR="${ROOT}/dist"
 STAGE="${DIST_DIR}/stage"
-OUT_DEB="${DIST_DIR}/${PKG_NAME}_${VERSION}_${ARCH}.deb"
+OUT_DEB="${DIST_DIR}/${PKG_NAME}_${VERSION}_${ARCH}${DEB_SUFFIX:+_${DEB_SUFFIX}}.deb"
 
 USE_DOCKER=0
 if [[ "${1:-}" == "--docker" ]]; then
@@ -100,11 +100,12 @@ cat > "${STAGE}/usr/share/applications/pdf-sign-verifier.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=PDF Sign Verifier
-Comment=Verify Indian DSC / Amazon NOC PDF signatures on Linux
+Comment=Verify Indian DSC / Amazon NOC PDF signatures on Linux Mint / Ubuntu
 Exec=pdf-sign-verifier --gui
+Icon=application-pdf
 Terminal=false
-Categories=Office;Utility;
-Keywords=PDF;Signature;DSC;NOC;Verify;
+Categories=Office;Utility;XFCE;
+Keywords=PDF;Signature;DSC;NOC;Verify;Mint;
 StartupNotify=true
 EOF
 
