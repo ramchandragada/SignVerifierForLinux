@@ -88,7 +88,8 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
     p0 = (cx + scale * (-0.30), cy + scale * (-0.47))  # short tip
     p1 = (cx, cy)  # outer vertex
     p2 = (cx + scale * 0.50, cy + scale * (-0.98))  # long tip (top)
-    half = scale * 0.112
+    # Reference green arm ~13px on ~97px-tall check → half ≈ 0.055–0.06 of scale
+    half = scale * 0.055
 
     def dir_vec(a, b):
         dx, dy = b[0] - a[0], b[1] - a[1]
@@ -119,8 +120,8 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
 def _draw_hard_3d_check(img: Image.Image, cx: float, cy: float, scale: float) -> None:
     """Opaque green check + hard black bottom-right extrusion."""
     poly = _check_polygon(cx, cy, scale)
-    extrude = [(x + scale * 0.055, y + scale * 0.055) for x, y in poly]
-    rim = _check_polygon(cx, cy, scale * 1.02)
+    extrude = [(x + scale * 0.032, y + scale * 0.032) for x, y in poly]
+    rim = _check_polygon(cx, cy, scale * 1.01)
 
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
