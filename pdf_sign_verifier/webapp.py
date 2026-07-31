@@ -153,7 +153,7 @@ PAGE = r"""
     </div>
 
     <div id="result"></div>
-    <footer>PDF Sign Verifier {{ version }} ù Trust roots: {{ root_count }} (CCA India bundled)</footer>
+    <footer>PDF Sign Verifier {{ version }} ¬∑ Trust roots: {{ root_count }} (CCA India bundled)</footer>
   </main>
 
   <script>
@@ -194,7 +194,7 @@ PAGE = r"""
       fileMeta.textContent = `Checking: ${file.name} (${Math.round(file.size/1024)} KB)`;
       clearBtn.hidden = false;
       browse.disabled = true;
-      result.innerHTML = `<div class="card">Running cryptographic verificationù</div>`;
+      result.innerHTML = `<div class="card">Running cryptographic verification‚Ä¶</div>`;
       const body = new FormData();
       body.append('pdf', file);
       try {
@@ -216,7 +216,7 @@ PAGE = r"""
     async function exportVerifiedNoc() {
       if (!lastFile) return;
       const btn = document.getElementById('exportBtn');
-      if (btn) { btn.disabled = true; btn.textContent = 'Creating verified NOCù'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Creating verified NOC‚Ä¶'; }
       const body = new FormData();
       body.append('pdf', lastFile);
       try {
@@ -244,7 +244,7 @@ PAGE = r"""
     async function downloadReport() {
       if (!lastFile) return;
       const btn = document.getElementById('reportBtn');
-      if (btn) { btn.disabled = true; btn.textContent = 'Creating reportù'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Creating report‚Ä¶'; }
       const body = new FormData();
       body.append('pdf', lastFile);
       try {
@@ -278,15 +278,15 @@ PAGE = r"""
       const ok = !!data.cryptographically_verified;
       if (ok && sig) {
         const note = data.overall === 'MODIFIED'
-          ? 'Crypto check passed. File was changed after signing ù Adobe would also warn. Verified NOC export is still available for upload.'
+          ? 'Crypto check passed. File was changed after signing ‚Äî Adobe would also warn. Verified NOC export is still available for upload.'
           : 'Crypto check passed. Save the verified NOC below (Adobe-style Signature valid) for upload.';
         return `
           <div class="adobe-stamp">
-            <div class="tick">?</div>
+            <div class="tick">‚úì</div>
             <div>
               <h3>Signature valid</h3>
               <p>Digitally signed by ${esc(sig.signer_name)}</p>
-              <p class="sub">Date: ${esc(sig.signing_time || 'ù')}</p>
+              <p class="sub">Date: ${esc(sig.signing_time || '‚Äî')}</p>
               <p class="sub">Trust: ${esc(sig.trust_anchor || 'CCA India')}</p>
               <div class="note">${note}</div>
               <div class="actions" style="justify-content:flex-start;margin-top:0.85rem">
@@ -310,7 +310,7 @@ PAGE = r"""
       if (data.overall === 'INVALID' || data.overall === 'ERROR') {
         return `
           <div class="adobe-stamp">
-            <div class="tick bad">?</div>
+            <div class="tick bad">‚úó</div>
             <div>
               <h3>Signature invalid</h3>
               <p class="sub">${esc(data.overall_label || data.error || '')}</p>
@@ -321,10 +321,10 @@ PAGE = r"""
         if (data.is_visual_noc) {
           return `
           <div class="adobe-stamp">
-            <div class="tick">?</div>
+            <div class="tick">‚úì</div>
             <div>
               <h3>Verified NOC (visual only)</h3>
-              <p class="sub">This is the green <strong>Signature valid</strong> file saved for upload. It has no PKCS#7 ù that is expected. Drop the <strong>original</strong> digitally signed PDF to run crypto verification again.</p>
+              <p class="sub">This is the green <strong>Signature valid</strong> file saved for upload. It has no PKCS#7 ‚Äî that is expected. Drop the <strong>original</strong> digitally signed PDF to run crypto verification again.</p>
             </div>
           </div>`;
         }
@@ -350,13 +350,13 @@ PAGE = r"""
           <p>${esc(sig.summary)}</p>
           <div class="grid">
             <div class="kv"><div class="k">Signer</div><div class="v">${esc(sig.signer_name)}</div></div>
-            <div class="kv"><div class="k">Email</div><div class="v">${esc(sig.signer_email || 'ù')}</div></div>
-            <div class="kv"><div class="k">Issuer</div><div class="v">${esc(sig.issuer || 'ù')}</div></div>
-            <div class="kv"><div class="k">Signing time</div><div class="v">${esc(sig.signing_time || 'ù')}</div></div>
+            <div class="kv"><div class="k">Email</div><div class="v">${esc(sig.signer_email || '‚Äî')}</div></div>
+            <div class="kv"><div class="k">Issuer</div><div class="v">${esc(sig.issuer || '‚Äî')}</div></div>
+            <div class="kv"><div class="k">Signing time</div><div class="v">${esc(sig.signing_time || '‚Äî')}</div></div>
             <div class="kv"><div class="k">Intact</div><div class="v">${sig.intact ? 'Yes' : 'No'}</div></div>
             <div class="kv"><div class="k">Trusted CA</div><div class="v">${sig.trusted ? 'Yes' : 'No'}</div></div>
             <div class="kv"><div class="k">Whole document covered</div><div class="v">${sig.covers_whole_document ? 'Yes' : 'No'}</div></div>
-            <div class="kv"><div class="k">Hash</div><div class="v">${esc(sig.hash_algorithm || 'ù')}</div></div>
+            <div class="kv"><div class="k">Hash</div><div class="v">${esc(sig.hash_algorithm || '‚Äî')}</div></div>
           </div>
           ${sig.warnings?.length ? `<ul class="warnings">${sig.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
           ${sig.details ? `<details><summary>Technical details</summary><pre>${esc(sig.details)}</pre></details>` : ''}
@@ -370,7 +370,7 @@ PAGE = r"""
               <h2>${esc(data.file_name)}</h2>
               <div class="meta" style="text-align:left;margin:0.35rem 0 0">${esc(
                 data.is_visual_noc && data.overall === 'UNSIGNED'
-                  ? 'Saved verified NOC ù visual Signature valid for upload (no PKCS#7 by design)'
+                  ? 'Saved verified NOC ‚Äî visual Signature valid for upload (no PKCS#7 by design)'
                   : data.overall_label
               )}</div>
             </div>
