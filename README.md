@@ -19,10 +19,21 @@ Amazon’s line *“accept this NOC only if the Digital signature can be verifie
 
 https://github.com/ramchandragada/SignVerifierForLinux/releases/latest
 
+Download the `.deb` from that page (do **not** type `1.0.X` literally), then:
+
 ```bash
 cd ~/Downloads
-# use the real filename from Releases (example):
-sudo apt install ./pdf-sign-verifier_1.0.X_amd64.deb
+# example for the current release — replace with the filename you downloaded:
+sudo apt install ./pdf-sign-verifier_1.0.12_amd64.deb
+pdf-sign-verifier
+```
+
+Or download and install in one step:
+
+```bash
+cd ~/Downloads
+curl -fsSLO https://github.com/ramchandragada/SignVerifierForLinux/releases/download/v1.0.12/pdf-sign-verifier_1.0.12_amd64.deb
+sudo apt install ./pdf-sign-verifier_1.0.12_amd64.deb
 pdf-sign-verifier
 ```
 
