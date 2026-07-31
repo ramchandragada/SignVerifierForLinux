@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PDF Sign Verifier
+Comment=Verify Indian DSC / Amazon NOC PDF signatures
+Exec=/home/ramchandra/PDF Sign Verifier/run.sh --gui
+Path=/home/ramchandra/PDF Sign Verifier
+Terminal=false
+Categories=Office;Utility;
+StartupNotify=true
