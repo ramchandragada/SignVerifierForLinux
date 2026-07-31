@@ -1,8 +1,9 @@
 name: Build and release .deb
 
-# Every push to main builds .deb packages for Linux Mint XFCE company PCs:
+# Every push to main builds .deb packages for:
 #   - Mint 22.x  (Ubuntu 24.04 / Python 3.12)
 #   - Mint 21.x  (Ubuntu 22.04 / Python 3.10)
+#   - Ubuntu 26.04 (Python 3.14) — developer / newer PCs
 on:
   push:
     branches: [main]
@@ -19,16 +20,18 @@ jobs:
         include:
           - os: ubuntu-24.04
             suffix: mint22
-            label: "Linux Mint 22.x XFCE (Ubuntu 24.04 / Python 3.12)"
           - os: ubuntu-22.04
             suffix: mint21
-            label: "Linux Mint 21.x XFCE (Ubuntu 22.04 / Python 3.10)"
+          - os: ubuntu-24.04
+            suffix: ubuntu26
+            docker_image: ubuntu:26.04
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install build dependencies (native)
+        if: ${{ !matrix.docker_image }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3 python3-venv python3-pip dpkg-dev binutils \
@@ -41,13 +44,41 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Building ${VERSION} for ${{ matrix.suffix }}"
 
-      - name: Build .deb
+      - name: Build .deb (native)
+        if: ${{ !matrix.docker_image }}
         env:
           VERSION: ${{ steps.ver.outputs.version }}
           DEB_SUFFIX: ${{ matrix.suffix }}
         run: |
           chmod +x packaging/build-deb.sh
           ./packaging/build-deb.sh
+          ls -lh dist/*.deb
+
+      - name: Build .deb (Docker)
+        if: ${{ matrix.docker_image }}
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          DEB_SUFFIX: ${{ matrix.suffix }}
+        run: |
+          chmod +x packaging/build-deb.sh
+          docker run --rm \
+            -v "$PWD:/src:ro" \
+            -v "$PWD/dist:/out" \
+            -e VERSION \
+            -e DEB_SUFFIX \
+            "${{ matrix.docker_image }}" \
+            bash -lc '
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq python3 python3-venv python3-pip dpkg-dev binutils \
+                fonts-liberation fonts-urw-base35 >/dev/null
+              cp -a /src /build
+              cd /build
+              mkdir -p /build/dist
+              bash /build/packaging/build-deb.sh
+              cp -a /build/dist/*.deb /out/
+            '
           ls -lh dist/*.deb
 
       - name: Upload artifact
@@ -80,25 +111,23 @@ jobs:
           generate_release_notes: true
           files: artifacts/*.deb
           body: |
-            ## For Linux Mint XFCE (company PCs)
+            ## Pick the package for your PC
 
-            Download the matching package from this release:
+            | Your PC | Download |
+            |---------|----------|
+            | **Linux Mint 22.x XFCE** | `pdf-sign-verifier_1.0.${{ github.run_number }}_amd64_mint22.deb` |
+            | **Linux Mint 21.x XFCE** | `pdf-sign-verifier_1.0.${{ github.run_number }}_amd64_mint21.deb` |
+            | **Ubuntu 26.04** | `pdf-sign-verifier_1.0.${{ github.run_number }}_amd64_ubuntu26.deb` |
 
-            | Your PC | Download file |
-            |---------| | ------------- |
-            | **Linux Mint 22 / 22.1 / 22.2 / 22.3 XFCE** | `pdf-sign-verifier_1.0.${{ github.run_number }}_amd64_mint22.deb` |
-            | **Linux Mint 21 / 21.1 / 21.2 / 21.3 XFCE** | `pdf-sign-verifier_1.0.${{ github.run_number }}_amd64_mint21.deb` |
-
-            ### Install
+            ### Install (exact filename — do not use `*` until the file is in the current folder)
             ```bash
-            sudo apt install ./pdf-sign-verifier_*.deb
+            cd ~/Downloads
+            sudo apt install ./pdf-sign-verifier_1.0.${{ github.run_number }}_amd64_ubuntu26.deb
             pdf-sign-verifier
             ```
-            Or open **PDF Sign Verifier** from the XFCE menu (Office / Accessories).
 
-            Check your Mint version: Menu → System Info, or run `cat /etc/linuxmint/info`
+            Check your system: `cat /etc/os-release` or on Mint `cat /etc/linuxmint/info`
 
-            **Commit:** `${{ github.sha }}`  
-            Auto-built from `main` — every push publishes a new release.
+            **Commit:** `${{ github.sha }}`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

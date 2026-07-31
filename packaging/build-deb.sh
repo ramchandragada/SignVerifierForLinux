@@ -15,19 +15,27 @@ DIST_DIR="${ROOT}/dist"
 STAGE="${DIST_DIR}/stage"
 OUT_DEB="${DIST_DIR}/${PKG_NAME}_${VERSION}_${ARCH}${DEB_SUFFIX:+_${DEB_SUFFIX}}.deb"
 
-USE_DOCKER=0
+USE_DOCKER=""
 if [[ "${1:-}" == "--docker" ]]; then
-  USE_DOCKER=1
+  USE_DOCKER="ubuntu:24.04"
+  DEB_SUFFIX="${DEB_SUFFIX:-mint22}"
+elif [[ "${1:-}" == "--docker-26" ]]; then
+  USE_DOCKER="ubuntu:26.04"
+  DEB_SUFFIX="${DEB_SUFFIX:-ubuntu26}"
+elif [[ "${1:-}" == "--docker-22" ]]; then
+  USE_DOCKER="ubuntu:22.04"
+  DEB_SUFFIX="${DEB_SUFFIX:-mint21}"
 fi
 
-if [[ "${USE_DOCKER}" -eq 1 ]]; then
-  echo "==> Building inside Ubuntu 24.04 Docker (portable for company PCs)..."
+if [[ -n "${USE_DOCKER}" ]]; then
+  echo "==> Building inside ${USE_DOCKER} (suffix=${DEB_SUFFIX})..."
   mkdir -p "${DIST_DIR}"
   docker run --rm \
     -v "${ROOT}:/src:ro" \
     -v "${DIST_DIR}:/out" \
     -e VERSION="${VERSION}" \
-    ubuntu:24.04 \
+    -e DEB_SUFFIX="${DEB_SUFFIX}" \
+    "${USE_DOCKER}" \
     bash -lc '
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
@@ -36,15 +44,14 @@ if [[ "${USE_DOCKER}" -eq 1 ]]; then
         fonts-liberation fonts-urw-base35 >/dev/null
       cp -a /src /build
       cd /build
-      # Writable copy for build artifacts
       rm -rf /build/dist/stage /build/dist/*.deb
       mkdir -p /build/dist
-      bash /build/packaging/build-deb.sh --inside-docker
+      bash /build/packaging/build-deb.sh
       cp -a /build/dist/*.deb /out/
       echo "Copied deb to host dist/"
     '
   ls -lh "${DIST_DIR}"/*.deb
-  echo "Done: $(ls -1 "${DIST_DIR}"/${PKG_NAME}_*_*.deb | tail -1)"
+  echo "Done: $(ls -1t "${DIST_DIR}"/${PKG_NAME}_*_*.deb | head -1)"
   exit 0
 fi
 
