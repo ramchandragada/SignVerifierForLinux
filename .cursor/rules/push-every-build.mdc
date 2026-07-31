@@ -1,0 +1,22 @@
+---
+description: Always commit and push to GitHub after builds or app changes
+alwaysApply: true
+---
+
+# Push every change to GitHub
+
+After **any** meaningful app change (tick/stamp visuals, packaging, verifier, UI, trust roots, CI), do this before ending the turn:
+
+1. Commit the relevant files on `main` (or the active feature branch).
+2. **`git push origin HEAD`** immediately — do not wait for the user to ask.
+3. Confirm the push (and that the release workflow will run if packaging/CI is affected).
+
+## Packaging / .deb builds
+
+- After a local `.deb` build **or** a packaging fix, ensure the matching source change is **committed and pushed** so GitHub Releases stays current for employees.
+- Prefer letting `.github/workflows/release-deb.yml` publish the universal `.deb` on push to `main`; still push the source so CI runs.
+
+## Do not skip
+
+- Never leave verified fixes only on the local machine.
+- Never treat “build finished locally” as done without a remote update when the change belongs in the product.
