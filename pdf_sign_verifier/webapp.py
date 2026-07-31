@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import tempfile
 import webbrowser
 from pathlib import Path
 from threading import Timer
@@ -11,6 +13,7 @@ from .authentic import (
     build_verification_report_pdf,
     is_cryptographically_verified,
 )
+from .noc_fields import fill_noc_form, inspect_noc_form
 from .trust_store import DEFAULT_TRUST_DIR, trust_root_names
 from .verified_appearance import export_verified_appearance_pdf
 from .verifier import verify_pdf
@@ -83,7 +86,7 @@ PAGE = r"""
     }
     button.secondary, .btn.secondary { background: #e8eef7; color: #1f4b99; }
     button.success, .btn.success { background: #0f7a45; color: #fff; }
-    button:disabled { opacity: 0.6; cursor: wait; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
     .meta { margin-top: 0.9rem; font-size: 0.9rem; color: var(--muted); text-align: center; }
     #result { margin-top: 1.25rem; }
     .card {
@@ -134,16 +137,39 @@ PAGE = r"""
       padding: 0.85rem; overflow: auto; font-size: 0.82rem;
     }
     footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; text-align: center; }
+    .noc-form h2 { margin: 0 0 0.35rem; font-size: 1.15rem; }
+    .noc-form .hint { color: var(--muted); margin: 0 0 1rem; font-size: 0.92rem; }
+    .field { margin-bottom: 0.85rem; text-align: left; }
+    .field label {
+      display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+    }
+    .field input, .field textarea {
+      width: 100%; border: 1px solid var(--line); border-radius: 10px;
+      padding: 0.65rem 0.75rem; font: inherit; background: #fff; color: var(--ink);
+    }
+    .field textarea { min-height: 4.2rem; resize: vertical; }
+    .field input:disabled, .field textarea:disabled {
+      background: #f1f4f8; color: #3a4656; cursor: not-allowed;
+    }
+    .locked-banner {
+      margin-bottom: 1rem; padding: 0.7rem 0.85rem; border-radius: 10px;
+      background: var(--valid-bg); color: var(--valid); font-size: 0.92rem; font-weight: 600;
+    }
+    .fill-banner {
+      margin-bottom: 1rem; padding: 0.7rem 0.85rem; border-radius: 10px;
+      background: var(--modified-bg); color: var(--modified); font-size: 0.92rem; font-weight: 600;
+    }
   </style>
 </head>
 <body>
   <main>
     <h1>PDF Sign Verifier</h1>
-    <p class="tagline">Verify the real signature, then save the NOC with Adobe-style <strong>Signature valid</strong> green tick for upload.</p>
+    <p class="tagline">Fill Amazon blank NOC merchant details when needed, verify the real signature, then save the NOC with Adobe-style <strong>Signature valid</strong> green tick.</p>
 
     <div class="drop" id="drop">
       <p><strong>Drop the original digitally signed PDF</strong></p>
-      <p>We check the PKCS#7 signature. We do not draw fake ticks into the file.</p>
+      <p>Blank Amazon NOCs can be filled here, then cryptographically verified.</p>
       <div class="actions">
         <button type="button" id="browse">Choose PDF</button>
         <button type="button" class="secondary" id="clear" hidden>Clear</button>
@@ -182,34 +208,152 @@ PAGE = r"""
     }));
     drop.addEventListener('drop', e => {
       const file = e.dataTransfer.files?.[0];
-      if (file) verify(file);
+      if (file) handlePdf(file);
     });
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0];
-      if (file) verify(file);
+      if (file) handlePdf(file);
     });
 
-    async function verify(file) {
+    async function handlePdf(file) {
       lastFile = file;
       fileMeta.textContent = `Checking: ${file.name} (${Math.round(file.size/1024)} KB)`;
       clearBtn.hidden = false;
       browse.disabled = true;
-      result.innerHTML = `<div class="card">Running cryptographic verification…</div>`;
+      result.innerHTML = `<div class="card">Inspecting NOC fields and signature…</div>`;
       const body = new FormData();
       body.append('pdf', file);
       try {
         const res = await fetch('/api/verify', { method: 'POST', body });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Verification failed');
-        result.innerHTML = renderReport(data);
-        const exportBtn = document.getElementById('exportBtn');
-        if (exportBtn) exportBtn.addEventListener('click', exportVerifiedNoc);
-        const reportBtn = document.getElementById('reportBtn');
-        if (reportBtn) reportBtn.addEventListener('click', downloadReport);
+        renderAll(data);
       } catch (err) {
         result.innerHTML = `<div class="card"><span class="badge ERROR">ERROR</span><p>${esc(err.message)}</p></div>`;
       } finally {
         browse.disabled = false;
+      }
+    }
+
+    function renderAll(data) {
+      const noc = data.noc_form || {};
+      let html = '';
+      if (noc.is_amazon_noc) {
+        html += renderNocForm(noc, data);
+      }
+      if (!noc.needs_fill) {
+        html += renderReport(data);
+      } else if (data.signatures?.length) {
+        html += `<div class="card note" style="margin-top:1rem">Amazon signature is present on this blank NOC.
+          Fill the merchant fields above, then click <strong>Fill &amp; Verify</strong> to write the details and run the crypto check.</div>`;
+      }
+      result.innerHTML = html;
+      wireButtons(data);
+    }
+
+    function wireButtons(data) {
+      const exportBtn = document.getElementById('exportBtn');
+      if (exportBtn) exportBtn.addEventListener('click', exportVerifiedNoc);
+      const reportBtn = document.getElementById('reportBtn');
+      if (reportBtn) reportBtn.addEventListener('click', downloadReport);
+      const fillBtn = document.getElementById('fillVerifyBtn');
+      if (fillBtn) fillBtn.addEventListener('click', fillAndVerify);
+      const ms1 = document.getElementById('noc_ms_name');
+      const ms2 = document.getElementById('noc_ms_name_2');
+      if (ms1 && ms2 && !ms2.disabled) {
+        ms1.addEventListener('input', () => {
+          if (!ms2.dataset.touched) ms2.value = ms1.value;
+        });
+        ms2.addEventListener('input', () => { ms2.dataset.touched = '1'; });
+      }
+    }
+
+    function fieldValue(noc, name) {
+      const f = (noc.fields || []).find(x => x.name === name);
+      return f ? (f.value || '') : '';
+    }
+
+    function renderNocForm(noc, data) {
+      const locked = !!noc.complete && !noc.needs_fill;
+      const dis = locked ? 'disabled' : '';
+      const banner = locked
+        ? `<div class="locked-banner">Details already filled — fields locked. Signature verified below.</div>`
+        : `<div class="fill-banner">${esc(noc.message || 'Enter merchant details, then Fill & Verify.')}</div>`;
+      return `
+        <div class="card noc-form">
+          <h2>Amazon NOC merchant details</h2>
+          <p class="hint">Date · M/S · M/s. · Main place of business in Maharashtra. M/S and M/s. use the same seller name on Amazon’s form.</p>
+          ${banner}
+          <div class="field">
+            <label for="noc_date">1) Date</label>
+            <input id="noc_date" type="text" placeholder="DD/MM/YYYY" value="${esc(fieldValue(noc,'date'))}" ${dis} />
+          </div>
+          <div class="field">
+            <label for="noc_ms_name">2) M/S</label>
+            <input id="noc_ms_name" type="text" placeholder="Merchant / seller legal name" value="${esc(fieldValue(noc,'ms_name'))}" ${dis} />
+          </div>
+          <div class="field">
+            <label for="noc_ms_name_2">3) M/s.</label>
+            <input id="noc_ms_name_2" type="text" placeholder="Same merchant name (usually)" value="${esc(fieldValue(noc,'ms_name_2'))}" ${dis} />
+          </div>
+          <div class="field">
+            <label for="noc_address">4) Main place of business in Maharashtra</label>
+            <textarea id="noc_address" placeholder="Full address" ${dis}>${esc(fieldValue(noc,'address'))}</textarea>
+          </div>
+          <div class="field">
+            <label for="noc_address_line2">Address line 2 (optional)</label>
+            <input id="noc_address_line2" type="text" placeholder="Overflow address line" value="${esc(fieldValue(noc,'address_line2'))}" ${dis} />
+          </div>
+          ${locked ? '' : `
+          <div class="actions" style="justify-content:flex-start">
+            <button type="button" class="success" id="fillVerifyBtn">Fill &amp; Verify signature</button>
+          </div>`}
+        </div>`;
+    }
+
+    async function fillAndVerify() {
+      if (!lastFile) return;
+      const date = document.getElementById('noc_date')?.value?.trim() || '';
+      const ms = document.getElementById('noc_ms_name')?.value?.trim() || '';
+      const ms2 = document.getElementById('noc_ms_name_2')?.value?.trim() || '';
+      const address = document.getElementById('noc_address')?.value?.trim() || '';
+      const address2 = document.getElementById('noc_address_line2')?.value?.trim() || '';
+      if (!date || !ms || !address) {
+        alert('Please fill Date, M/S, and the Maharashtra address.');
+        return;
+      }
+      if (!ms2) ms2 = ms;
+      const btn = document.getElementById('fillVerifyBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Filling & verifying…'; }
+      const body = new FormData();
+      body.append('pdf', lastFile);
+      body.append('date', date);
+      body.append('ms_name', ms);
+      body.append('ms_name_2', ms2);
+      body.append('address', address);
+      body.append('address_line2', address2);
+      try {
+        const res = await fetch('/api/fill-and-verify', { method: 'POST', body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Fill & verify failed');
+        if (data.filled_pdf_base64) {
+          const bin = atob(data.filled_pdf_base64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const filledName = data.filled_file_name || lastFile.name.replace(/\\.pdf$/i, '') + '_filled.pdf';
+          lastFile = new File([bytes], filledName, { type: 'application/pdf' });
+          fileMeta.textContent = `Filled: ${filledName} (${Math.round(lastFile.size/1024)} KB)`;
+          // Offer immediate download of filled signed NOC
+          const url = URL.createObjectURL(lastFile);
+          const a = document.createElement('a');
+          a.href = url; a.download = filledName;
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(url);
+        }
+        renderAll(data);
+      } catch (err) {
+        alert(err.message);
+        if (btn) { btn.disabled = false; btn.textContent = 'Fill & Verify signature'; }
       }
     }
 
@@ -278,7 +422,7 @@ PAGE = r"""
       const ok = !!data.cryptographically_verified;
       if (ok && sig) {
         const note = data.overall === 'MODIFIED'
-          ? 'Crypto check passed. File was changed after signing — Adobe would also warn. Verified NOC export is still available for upload.'
+          ? 'Crypto check passed. Merchant fields were filled after Amazon signed (expected for blank NOCs). Verified NOC export is available for upload.'
           : 'Crypto check passed. Save the verified NOC below (Adobe-style Signature valid) for upload.';
         return `
           <div class="adobe-stamp">
@@ -390,6 +534,15 @@ PAGE = r"""
 """
 
 
+def _report_payload(report, upload_name: str, path: Path) -> dict:
+    data = report.to_dict()
+    data["file_name"] = Path(upload_name).name
+    data["cryptographically_verified"] = is_cryptographically_verified(report)
+    data["is_visual_noc"] = _is_visual_noc_export(path)
+    data["noc_form"] = inspect_noc_form(path).to_dict()
+    return data
+
+
 @app.get("/")
 def home():
     try:
@@ -408,16 +561,57 @@ def api_verify():
     if not upload.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Please upload a .pdf file"}), 400
 
-    import tempfile
-
     with tempfile.TemporaryDirectory(prefix="pdfsig-") as tmp:
         target = Path(tmp) / Path(upload.filename).name
         upload.save(target)
+        noc = inspect_noc_form(target)
+        # Blank NOCs: return form status first; still verify so crypto status is known.
         report = verify_pdf(target)
-        data = report.to_dict()
-        data["file_name"] = Path(upload.filename).name
-        data["cryptographically_verified"] = is_cryptographically_verified(report)
-        data["is_visual_noc"] = _is_visual_noc_export(target)
+        data = _report_payload(report, upload.filename, target)
+        if noc.needs_fill:
+            data["awaiting_fill"] = True
+        return jsonify(data)
+
+
+@app.post("/api/fill-and-verify")
+def api_fill_and_verify():
+    upload = request.files.get("pdf")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "No PDF uploaded"}), 400
+    if not upload.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Please upload a .pdf file"}), 400
+
+    date = (request.form.get("date") or "").strip()
+    ms_name = (request.form.get("ms_name") or "").strip()
+    ms_name_2 = (request.form.get("ms_name_2") or "").strip() or ms_name
+    address = (request.form.get("address") or "").strip()
+    address_line2 = (request.form.get("address_line2") or "").strip()
+
+    with tempfile.TemporaryDirectory(prefix="pdfsig-fill-") as tmp:
+        source = Path(tmp) / Path(upload.filename).name
+        upload.save(source)
+        filled_name = f"{Path(upload.filename).stem}_filled.pdf"
+        filled = Path(tmp) / filled_name
+        try:
+            fill_noc_form(
+                source,
+                filled,
+                date=date,
+                ms_name=ms_name,
+                ms_name_2=ms_name_2,
+                address=address,
+                address_line2=address_line2,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"error": f"Could not fill NOC fields: {exc}"}), 400
+
+        report = verify_pdf(filled)
+        data = _report_payload(report, filled_name, filled)
+        data["filled_file_name"] = filled_name
+        data["filled_pdf_base64"] = base64.b64encode(filled.read_bytes()).decode("ascii")
+        data["awaiting_fill"] = False
         return jsonify(data)
 
 
@@ -432,7 +626,6 @@ def _is_visual_noc_export(path: Path) -> bool:
             keywords = (meta.get("keywords") or "") + " " + (meta.get("subject") or "")
             if "PDF-Sign-Verifier-NOC" in keywords:
                 return True
-            # Fallback: filename pattern from our exporter
             if path.name.endswith("_Signature_valid.pdf"):
                 return True
         finally:
@@ -449,8 +642,6 @@ def api_export_verified_noc():
         return jsonify({"error": "No PDF uploaded"}), 400
     if not upload.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Please upload a .pdf file"}), 400
-
-    import tempfile
 
     with tempfile.TemporaryDirectory(prefix="pdfsig-noc-") as tmp:
         target = Path(tmp) / Path(upload.filename).name
@@ -476,8 +667,6 @@ def api_verification_report():
     if upload is None or not upload.filename:
         return jsonify({"error": "No PDF uploaded"}), 400
 
-    import tempfile
-
     with tempfile.TemporaryDirectory(prefix="pdfsig-report-") as tmp:
         target = Path(tmp) / Path(upload.filename).name
         upload.save(target)
@@ -498,5 +687,5 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
         Timer(0.8, lambda: webbrowser.open(url)).start()
     print(f"PDF Sign Verifier {__version__}")
     print(f"Open {url}  (Ctrl+C to stop)")
-    print("Verify crypto ? Save NOC with Adobe-style Signature valid")
+    print("Fill blank Amazon NOC → Verify crypto → Save Signature valid NOC")
     app.run(host=host, port=port, debug=False, use_reloader=False)

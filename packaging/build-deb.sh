@@ -94,6 +94,7 @@ pyinstaller \
   --hidden-import pdf_sign_verifier.trust_store \
   --hidden-import pdf_sign_verifier.cli \
   --hidden-import pdf_sign_verifier.authentic \
+  --hidden-import pdf_sign_verifier.noc_fields \
   --add-data "${ROOT}/trust:trust" \
   --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
   "${ROOT}/main.py"

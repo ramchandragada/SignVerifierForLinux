@@ -61,6 +61,16 @@ cd SignVerifierForLinux
 ./run.sh --list-roots
 ```
 
+## Amazon blank NOC (service provider)
+
+Amazon may issue a **digitally signed blank NOC**. In the web UI:
+
+1. Drop the signed blank PDF.
+2. If merchant fields are empty, enter **Date**, **M/S**, **M/s.**, and **Maharashtra address**, then **Fill & Verify**.
+3. If those fields are already filled, they are **locked** and the signature is verified immediately.
+
+Filling blank fields after Amazon’s signature is expected; the crypto check still validates Amazon’s signature (status may show **MODIFIED** because the form was completed after signing).
+
 ## Results
 
 - **VALID** — signature intact + trusted (CCA India)
