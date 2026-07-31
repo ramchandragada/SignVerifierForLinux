@@ -118,15 +118,14 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
 
 
 def _draw_hard_3d_check(img: Image.Image, cx: float, cy: float, scale: float) -> None:
-    """Opaque green check + hard black bottom-right extrusion."""
+    """Opaque green check + hard black bottom-right extrusion (no full outline)."""
     poly = _check_polygon(cx, cy, scale)
+    # Reference only shows a slim bottom-right ledge — not a fat full outline
     extrude = [(x + scale * 0.032, y + scale * 0.032) for x, y in poly]
-    rim = _check_polygon(cx, cy, scale * 1.01)
 
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     d.polygon(extrude, fill=(0, 0, 0, 255))
-    d.polygon(rim, fill=(0, 0, 0, 255))
     d.polygon(poly, fill=ADOBE_GREEN)
     img.alpha_composite(layer)
 
