@@ -205,6 +205,15 @@ def _pick_sig(report: VerificationReport) -> SignatureResult:
     return trusted[0]
 
 
+def _find_authorised_signatory(page):
+    """Amazon NOCs use both US and UK spellings."""
+    for needle in ("Authorised Signatory", "Authorized Signatory"):
+        hits = page.search_for(needle)
+        if hits:
+            return hits[0]
+    return None
+
+
 def _anchor_rect(page):
     import fitz
 
@@ -225,14 +234,14 @@ def _anchor_rect(page):
     if widget_rect is not None:
         boxes.append(widget_rect)
 
-    auth = page.search_for("Authorized Signatory")
+    auth = _find_authorised_signatory(page)
     for_amazon = page.search_for("For Amazon Seller Services")
 
     if not boxes:
         if for_amazon:
             r = for_amazon[0]
             top = r.y1 + 1
-            bot = (auth[0].y0 - 8) if auth else r.y1 + 80
+            bot = (auth.y0 - 6) if auth else r.y1 + 80
             return fitz.Rect(r.x0, top, r.x0 + 190, bot)
         pr = page.rect
         return fitz.Rect(pr.x0 + 72, pr.y1 - 270, pr.x0 + 260, pr.y1 - 200)
@@ -242,13 +251,21 @@ def _anchor_rect(page):
     x1 = max(max(b.x1 for b in boxes) + 10, x0 + 190)
     y1 = max(b.y1 for b in boxes) + 2
 
+    # Never cover company line or Authorised Signatory
     if for_amazon and y0 < for_amazon[0].y1 + 1:
         y0 = for_amazon[0].y1 + 1
     if auth:
-        y1 = min(y1, auth[0].y0 - 8)
+        y1 = min(y1, auth.y0 - 6)
 
-    if y1 - y0 < 78:
+    # Prefer a readable stamp height, but never expand into Authorised Signatory
+    if y1 - y0 < 70 and auth is None:
         y0 = max((for_amazon[0].y1 + 1) if for_amazon else (y0 - 20), y1 - 78)
+    if y1 <= y0 + 48:
+        # Extremely tight band — keep whatever gap exists above Authorised Signatory
+        if auth:
+            y1 = max(y0 + 48, min(y1, auth.y0 - 6))
+        else:
+            y1 = y0 + 70
 
     return fitz.Rect(x0, y0, x1, y1)
 
@@ -290,6 +307,9 @@ def export_verified_appearance_pdf(
                 pass
 
         page = doc[page_index]
+        # Capture Authorised Signatory before deleting the widget (layout stays).
+        auth = _find_authorised_signatory(page)
+        for_amazon = page.search_for("For Amazon Seller Services")
         try:
             for widget in list(page.widgets() or []):
                 ft = (getattr(widget, "field_type_string", "") or "").lower()
@@ -300,29 +320,43 @@ def export_verified_appearance_pdf(
             pass
 
         cover = _anchor_rect(page)
-        auth = page.search_for("Authorized Signatory")
         pr = page.rect
         if auth:
-            cover.y1 = min(cover.y1, auth[0].y0 - 8)
+            cover.y1 = min(cover.y1, auth.y0 - 6)
+        if for_amazon:
+            cover.y0 = max(cover.y0, for_amazon[0].y1 + 1)
         cover.x1 = min(max(cover.x1, cover.x0 + 190), pr.x1 - 14)
-        if cover.height < 74:
-            cover.y0 = max(pr.y0 + 40, cover.y1 - 78)
+        # Grow upward only if it will not cover the company line
+        if cover.height < 70:
+            min_y0 = (for_amazon[0].y1 + 1) if for_amazon else (pr.y0 + 40)
+            cover.y0 = max(min_y0, cover.y1 - 78)
 
         page.draw_rect(cover, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
 
-        # Stamp aspect 300:122
+        # Stamp aspect 300:122 — fit inside cover; never overlap Authorised Signatory
         aspect = 300 / 122
-        stamp_h = min(88.0, cover.height - 1)
+        max_bottom = (auth.y0 - 6) if auth else (cover.y1)
+        stamp_h = min(88.0, cover.height - 1, max_bottom - cover.y0)
+        stamp_h = max(48.0, stamp_h)
         stamp_w = stamp_h * aspect
         if stamp_w > cover.width:
             stamp_w = cover.width
             stamp_h = stamp_w / aspect
-        if auth and cover.y0 + stamp_h > auth[0].y0 - 6:
-            stamp_h = max(70.0, auth[0].y0 - 6 - cover.y0)
+        if cover.y0 + stamp_h > max_bottom:
+            stamp_h = max(48.0, max_bottom - cover.y0)
             stamp_w = stamp_h * aspect
 
         stamp_rect = fitz.Rect(cover.x0, cover.y0, cover.x0 + stamp_w, cover.y0 + stamp_h)
         page.insert_image(stamp_rect, stream=stamp_png, keep_proportion=False, overlay=True)
+
+        # Mark as visual NOC so re-checking this file is not confused with the original PKCS#7
+        doc.set_metadata(
+            {
+                **doc.metadata,
+                "keywords": "PDF-Sign-Verifier-NOC",
+                "subject": "Verified appearance (visual NOC) — original PKCS#7 is on the source PDF",
+            }
+        )
 
         output.parent.mkdir(parents=True, exist_ok=True)
         doc.save(output, garbage=4, deflate=True, clean=True)
