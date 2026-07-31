@@ -13,6 +13,24 @@ Lightweight Linux tool to **cryptographically verify** PDF digital signatures (A
 
 Amazon’s line *“accept this NOC only if the Digital signature can be verified”* means the **original signed PDF** must still verify. Upload that original — not a stamped/printed lookalike.
 
+## Install with .deb (company PCs)
+
+Pre-built package (Ubuntu **24.04** / Debian with **Python 3.12**, amd64):
+
+```bash
+# Download from GitHub Releases, then:
+sudo apt install ./pdf-sign-verifier_1.0.0_amd64_ubuntu24.04.deb
+pdf-sign-verifier          # opens web UI
+# or find "PDF Sign Verifier" in the app menu
+```
+
+Rebuild the package yourself:
+
+```bash
+./packaging/build-deb.sh --docker   # recommended (Ubuntu 24.04)
+# output: dist/pdf-sign-verifier_*.deb
+```
+
 ## Clone (any PC)
 
 ```bash

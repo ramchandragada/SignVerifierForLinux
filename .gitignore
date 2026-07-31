@@ -10,3 +10,4 @@ uploads/
 .env
 *.pdf
 !docs/**/*.pdf
+dist/
