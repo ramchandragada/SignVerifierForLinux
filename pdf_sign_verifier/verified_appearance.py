@@ -21,22 +21,37 @@ def is_cryptographically_verified(report: VerificationReport) -> bool:
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     # Prefer Nimbus Sans (Helvetica metric-compatible — closest to Acrobat)
+    bundled = []
+    try:
+        from .trust_store import PACKAGE_ROOT
+
+        fonts = PACKAGE_ROOT / "fonts"
+        if bold:
+            bundled = [fonts / "NimbusSans-Bold.otf", fonts / "LiberationSans-Bold.ttf"]
+        else:
+            bundled = [fonts / "NimbusSans-Regular.otf", fonts / "LiberationSans-Regular.ttf"]
+    except Exception:
+        pass
+
     if bold:
         paths = [
+            *bundled,
             "/usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         ]
     else:
         paths = [
+            *bundled,
             "/usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         ]
     for path in paths:
-        if Path(path).is_file():
+        path = Path(path)
+        if path.is_file():
             try:
-                return ImageFont.truetype(path, size=size)
+                return ImageFont.truetype(str(path), size=size)
             except Exception:
                 continue
     return ImageFont.load_default()

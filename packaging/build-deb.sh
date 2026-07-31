@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Build an installable .deb for PDF Sign Verifier (company distribution).
+# Build ONE universal .deb that runs on Debian / Ubuntu / Linux Mint (amd64).
+#
+# Uses PyInstaller so the package does NOT depend on a specific system Python.
+# Built on Ubuntu 22.04 (oldest common glibc) → runs on Mint 21/22, Ubuntu 22.04+, Debian 12+.
 #
 # Usage:
-#   ./packaging/build-deb.sh              # local build (this machine's Python)
-#   ./packaging/build-deb.sh --docker     # Ubuntu 24.04 amd64 (recommended for sharing)
+#   ./packaging/build-deb.sh              # build via Docker (recommended)
+#   ./packaging/build-deb.sh --local      # build on this machine (needs pyinstaller)
 #
 set -euo pipefail
 
@@ -13,110 +16,114 @@ VERSION="${VERSION:-1.0.0}"
 ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
 DIST_DIR="${ROOT}/dist"
 STAGE="${DIST_DIR}/stage"
-OUT_DEB="${DIST_DIR}/${PKG_NAME}_${VERSION}_${ARCH}${DEB_SUFFIX:+_${DEB_SUFFIX}}.deb"
+OUT_DEB="${DIST_DIR}/${PKG_NAME}_${VERSION}_${ARCH}.deb"
+DOCKER_IMAGE="${DOCKER_IMAGE:-ubuntu:22.04}"
 
-USE_DOCKER=""
-if [[ "${1:-}" == "--docker" ]]; then
-  USE_DOCKER="ubuntu:24.04"
-  DEB_SUFFIX="${DEB_SUFFIX:-mint22}"
-elif [[ "${1:-}" == "--docker-26" ]]; then
-  USE_DOCKER="ubuntu:26.04"
-  DEB_SUFFIX="${DEB_SUFFIX:-ubuntu26}"
-elif [[ "${1:-}" == "--docker-22" ]]; then
-  USE_DOCKER="ubuntu:22.04"
-  DEB_SUFFIX="${DEB_SUFFIX:-mint21}"
-fi
-
-if [[ -n "${USE_DOCKER}" ]]; then
-  echo "==> Building inside ${USE_DOCKER} (suffix=${DEB_SUFFIX})..."
+if [[ "${1:-}" != "--local" ]]; then
+  echo "==> Building UNIVERSAL .deb inside ${DOCKER_IMAGE} (works on Mint/Ubuntu/Debian)..."
   mkdir -p "${DIST_DIR}"
   docker run --rm \
     -v "${ROOT}:/src:ro" \
     -v "${DIST_DIR}:/out" \
     -e VERSION="${VERSION}" \
-    -e DEB_SUFFIX="${DEB_SUFFIX}" \
-    "${USE_DOCKER}" \
+    "${DOCKER_IMAGE}" \
     bash -lc '
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
       apt-get install -y -qq python3 python3-venv python3-pip dpkg-dev binutils \
-        fonts-liberation fonts-urw-base35 >/dev/null
+        fonts-liberation fonts-urw-base35 file >/dev/null
       cp -a /src /build
       cd /build
-      rm -rf /build/dist/stage /build/dist/*.deb
+      rm -rf /build/dist/stage /build/dist/*.deb /build/build /build/dist/pyi
       mkdir -p /build/dist
-      bash /build/packaging/build-deb.sh
+      bash /build/packaging/build-deb.sh --local
       cp -a /build/dist/*.deb /out/
-      echo "Copied deb to host dist/"
+      ls -lh /out/*.deb
     '
-  ls -lh "${DIST_DIR}"/*.deb
   echo "Done: $(ls -1t "${DIST_DIR}"/${PKG_NAME}_*_*.deb | head -1)"
   exit 0
 fi
 
-echo "==> Staging ${PKG_NAME} ${VERSION} (${ARCH})"
-rm -rf "${STAGE}"
+echo "==> Staging universal ${PKG_NAME} ${VERSION} (${ARCH})"
+rm -rf "${STAGE}" "${DIST_DIR}/pyi" "${ROOT}/build" "${ROOT}/*.spec"
 mkdir -p \
   "${STAGE}/DEBIAN" \
-  "${STAGE}/opt/${PKG_NAME}/app" \
+  "${STAGE}/opt/${PKG_NAME}" \
   "${STAGE}/usr/bin" \
   "${STAGE}/usr/share/applications" \
   "${STAGE}/usr/share/doc/${PKG_NAME}"
 
-# Application payload
-install -m 0755 "${ROOT}/main.py" "${STAGE}/opt/${PKG_NAME}/app/main.py"
-install -m 0644 "${ROOT}/requirements.txt" "${STAGE}/opt/${PKG_NAME}/app/requirements.txt"
-cp -a "${ROOT}/pdf_sign_verifier" "${STAGE}/opt/${PKG_NAME}/app/"
-cp -a "${ROOT}/trust" "${STAGE}/opt/${PKG_NAME}/app/"
-find "${STAGE}/opt/${PKG_NAME}/app" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
-find "${STAGE}/opt/${PKG_NAME}/app" -type f -name '*.pyc' -delete 2>/dev/null || true
+# Bundle fonts into the app for systems without liberation/urw
+mkdir -p "${ROOT}/packaging/bundle-fonts"
+cp -n /usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
+cp -n /usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
+cp -n /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
+cp -n /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
 
-# Vendor Python dependencies into a venv at the final install path prefix
-VENV="${STAGE}/opt/${PKG_NAME}/venv"
-echo "==> Creating venv and installing dependencies (no network needed after this build)..."
-python3 -m venv "${VENV}"
-"${VENV}/bin/pip" install --upgrade pip wheel -q
-"${VENV}/bin/pip" install -r "${ROOT}/requirements.txt" -q
+echo "==> Creating build venv + installing deps + PyInstaller..."
+python3 -m venv "${DIST_DIR}/build-venv"
+# shellcheck disable=SC1091
+source "${DIST_DIR}/build-venv/bin/activate"
+pip install -q --upgrade pip wheel
+pip install -q -r "${ROOT}/requirements.txt" pyinstaller tzdata
 
-# Make venv relocatable to /opt/pdf-sign-verifier
-OLD_PREFIX="${STAGE}/opt/${PKG_NAME}"
-NEW_PREFIX="/opt/${PKG_NAME}"
-if [[ -f "${VENV}/pyvenv.cfg" ]]; then
-  sed -i "s|${OLD_PREFIX}|${NEW_PREFIX}|g" "${VENV}/pyvenv.cfg"
-fi
-# Rewrite shebangs in venv/bin
-while IFS= read -r -d '' f; do
-  if head -1 "$f" | grep -q "^#!${OLD_PREFIX}"; then
-    sed -i "1s|^#!${OLD_PREFIX}|#!${NEW_PREFIX}|" "$f"
-  fi
-done < <(find "${VENV}/bin" -type f -print0)
+echo "==> Freezing app with PyInstaller (onedir)..."
+cd "${ROOT}"
+pyinstaller \
+  --noconfirm \
+  --clean \
+  --name pdf-sign-verifier \
+  --onedir \
+  --distpath "${DIST_DIR}/pyi" \
+  --workpath "${DIST_DIR}/pyi-work" \
+  --specpath "${DIST_DIR}/pyi-work" \
+  --paths "${ROOT}" \
+  --collect-all pymupdf \
+  --collect-all cryptography \
+  --collect-all PIL \
+  --collect-all tzdata \
+  --hidden-import reportlab \
+  --hidden-import flask \
+  --hidden-import zoneinfo \
+  --hidden-import tzdata \
+  --hidden-import pdf_sign_verifier \
+  --hidden-import pdf_sign_verifier.webapp \
+  --hidden-import pdf_sign_verifier.verifier \
+  --hidden-import pdf_sign_verifier.verified_appearance \
+  --hidden-import pdf_sign_verifier.trust_store \
+  --hidden-import pdf_sign_verifier.cli \
+  --hidden-import pdf_sign_verifier.authentic \
+  --add-data "${ROOT}/trust:trust" \
+  --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
+  "${ROOT}/main.py"
 
-# Launcher
+# Install frozen tree under /opt
+cp -a "${DIST_DIR}/pyi/pdf-sign-verifier/." "${STAGE}/opt/${PKG_NAME}/"
+chmod 0755 "${STAGE}/opt/${PKG_NAME}/pdf-sign-verifier"
+
+# Launcher (thin wrapper)
 cat > "${STAGE}/usr/bin/pdf-sign-verifier" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="/opt/pdf-sign-verifier"
-export PDF_SIGN_VERIFIER_HOME="${ROOT}/app"
-exec "${ROOT}/venv/bin/python" "${ROOT}/app/main.py" "$@"
+exec /opt/pdf-sign-verifier/pdf-sign-verifier "$@"
 EOF
 chmod 0755 "${STAGE}/usr/bin/pdf-sign-verifier"
 
-# Desktop entry
+# Desktop entry (XFCE / GNOME / KDE / Cinnamon)
 cat > "${STAGE}/usr/share/applications/pdf-sign-verifier.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=PDF Sign Verifier
-Comment=Verify Indian DSC / Amazon NOC PDF signatures on Linux Mint / Ubuntu
+Comment=Verify Indian DSC / Amazon NOC PDF signatures
 Exec=pdf-sign-verifier --gui
 Icon=application-pdf
 Terminal=false
 Categories=Office;Utility;XFCE;
-Keywords=PDF;Signature;DSC;NOC;Verify;Mint;
+Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
 StartupNotify=true
 EOF
 
-# Docs
 install -m 0644 "${ROOT}/README.md" "${STAGE}/usr/share/doc/${PKG_NAME}/README.md"
 cat > "${STAGE}/usr/share/doc/${PKG_NAME}/copyright" <<'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -127,24 +134,22 @@ License: Proprietary
  Internal company distribution.
 EOF
 
-# Debian control
-PY_VER="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-PY_NEXT="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor + 1}")')"
 INSTALLED_SIZE="$(du -sk "${STAGE}/opt" "${STAGE}/usr" | awk '{s+=$1} END {print s}')"
-
 cat > "${STAGE}/DEBIAN/control" <<EOF
 Package: ${PKG_NAME}
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= ${PY_VER}), python3 (<< ${PY_NEXT}), fonts-liberation | fonts-dejavu-core
+Depends: libc6
+Recommends: fonts-liberation | fonts-dejavu-core
 Maintainer: Ramchandra Gada <ramchandragada@users.noreply.github.com>
 Description: Verify PDF digital signatures (Indian DSC / Amazon NOC)
- Lightweight Linux tool to cryptographically verify PDF signatures
+ Self-contained Linux tool to cryptographically verify PDF signatures
  using CCA India trust roots, with a local web UI and verified-NOC export.
  .
- Built for Python ${PY_VER} on ${ARCH}. Install on matching Ubuntu/Debian systems.
+ One package for Debian, Ubuntu, and Linux Mint (amd64). No system Python
+ version required — runtime is bundled.
 Installed-Size: ${INSTALLED_SIZE}
 Homepage: https://github.com/ramchandragada/SignVerifierForLinux
 EOF
@@ -155,8 +160,9 @@ set -e
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database -q /usr/share/applications || true
 fi
-echo "PDF Sign Verifier installed. Run: pdf-sign-verifier"
-echo "Or open 'PDF Sign Verifier' from the app menu."
+echo "PDF Sign Verifier installed."
+echo "  Run:  pdf-sign-verifier"
+echo "  Or open 'PDF Sign Verifier' from the application menu."
 EOF
 chmod 0755 "${STAGE}/DEBIAN/postinst"
 
@@ -174,8 +180,8 @@ mkdir -p "${DIST_DIR}"
 dpkg-deb --root-owner-group --build "${STAGE}" "${OUT_DEB}"
 echo
 ls -lh "${OUT_DEB}"
+file "${STAGE}/opt/${PKG_NAME}/pdf-sign-verifier" || true
 echo
-echo "Install with:"
-echo "  sudo apt install ./${OUT_DEB#$ROOT/}"
-echo "  # or: sudo dpkg -i ${OUT_DEB}"
-echo "Then run: pdf-sign-verifier"
+echo "Install on ANY Debian/Ubuntu/Mint amd64 PC:"
+echo "  sudo apt install ./${OUT_DEB##*/}"
+echo "  pdf-sign-verifier"

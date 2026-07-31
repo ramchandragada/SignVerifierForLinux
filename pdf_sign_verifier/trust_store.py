@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from asn1crypto import x509 as asn1_x509
 from pyhanko.keys import load_certs_from_pemder
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+
+def _package_root() -> Path:
+    # PyInstaller onedir/onefile extracts data under sys._MEIPASS
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
+
+
+PACKAGE_ROOT = _package_root()
 DEFAULT_TRUST_DIR = PACKAGE_ROOT / "trust"
 
 

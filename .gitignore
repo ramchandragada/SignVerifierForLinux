@@ -11,3 +11,4 @@ uploads/
 *.pdf
 !docs/**/*.pdf
 dist/
+packaging/bundle-fonts/
