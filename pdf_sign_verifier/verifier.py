@@ -18,7 +18,11 @@ from pyhanko.sign.validation.status import (
 )
 from pyhanko_certvalidator import ValidationContext
 
-from .trust_store import DEFAULT_TRUST_DIR, load_trust_roots
+from .trust_store import (
+    DEFAULT_TRUST_DIR,
+    load_intermediate_certs,
+    load_trust_roots,
+)
 
 # pyHanko prints full tracebacks for expected incremental-update findings.
 logging.getLogger("pyhanko.sign.diff_analysis").setLevel(logging.ERROR)
@@ -199,6 +203,7 @@ def verify_pdf(
 
     try:
         roots = load_trust_roots(trust_path)
+        intermediates = load_intermediate_certs(trust_path)
     except Exception as exc:
         return VerificationReport(
             path=str(pdf_path),
@@ -209,14 +214,6 @@ def verify_pdf(
             overall_label="Trust store error",
             error=str(exc),
         )
-
-    # Empty weak_hash_algos: allow SHA-1 used by many Indian Class 2/3 DSCs.
-    vc = ValidationContext(
-        trust_roots=roots,
-        allow_fetching=allow_fetching,
-        revocation_mode="soft-fail",
-        weak_hash_algos=set(),
-    )
 
     results: list[SignatureResult] = []
     try:
@@ -278,6 +275,24 @@ def verify_pdf(
                         chain = [cert.subject.human_friendly]
                 except Exception:
                     pass
+
+                # Validate certificate validity at signing time (Adobe-style), not "now".
+                # Many Indian DSCs expire; signatures made while the cert was valid stay trusted.
+                moment = getattr(sig, "self_reported_timestamp", None)
+                if isinstance(moment, datetime) and moment.tzinfo is None:
+                    from datetime import timezone
+
+                    moment = moment.replace(tzinfo=timezone.utc)
+
+                # Empty weak_hash_algos: allow SHA-1 used by many Indian Class 2/3 DSCs.
+                vc = ValidationContext(
+                    trust_roots=roots,
+                    other_certs=intermediates,
+                    moment=moment,
+                    allow_fetching=allow_fetching,
+                    revocation_mode="soft-fail",
+                    weak_hash_algos=set(),
+                )
 
                 try:
                     # Keep diff analysis so modification-after-sign is detected.
