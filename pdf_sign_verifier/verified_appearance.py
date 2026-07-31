@@ -103,8 +103,8 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
     p0 = (cx + scale * (-0.30), cy + scale * (-0.47))  # short tip
     p1 = (cx, cy)  # outer vertex
     p2 = (cx + scale * 0.50, cy + scale * (-0.98))  # long tip (top)
-    # Reference green arm ~13px on ~97px-tall check → half ≈ 0.055–0.06 of scale
-    half = scale * 0.055
+    # Target Adobe reference arm weight (between previous fat 0.055 and too-thin 0.028)
+    half = scale * 0.038
 
     def dir_vec(a, b):
         dx, dy = b[0] - a[0], b[1] - a[1]
@@ -135,8 +135,8 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
 def _draw_hard_3d_check(img: Image.Image, cx: float, cy: float, scale: float) -> None:
     """Opaque green check + hard black bottom-right extrusion (no full outline)."""
     poly = _check_polygon(cx, cy, scale)
-    # Reference only shows a slim bottom-right ledge — not a fat full outline
-    extrude = [(x + scale * 0.032, y + scale * 0.032) for x, y in poly]
+    # Very slim bottom-right ledge only
+    extrude = [(x + scale * 0.018, y + scale * 0.018) for x, y in poly]
 
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
@@ -181,7 +181,7 @@ def build_adobe_valid_stamp(signer_name: str, signing_time: str) -> bytes:
         ]
 
     # Check spans title→Contact; vertex near Date/Contact; left of mid-block
-    check_scale = 100 * scale
+    check_scale = 96 * scale
     cx = tx + 112 * scale
     cy = title_y + 90 * scale
     _draw_hard_3d_check(img, cx, cy, check_scale)
