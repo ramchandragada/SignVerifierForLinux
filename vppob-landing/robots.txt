@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vppob.com/sitemap.xml
