@@ -13,27 +13,37 @@ Lightweight Linux tool to **cryptographically verify** PDF digital signatures (A
 
 Amazon’s line *“accept this NOC only if the Digital signature can be verified”* means the **original signed PDF** must still verify. Upload that original — not a stamped/printed lookalike.
 
-## Install (.deb — Debian / Ubuntu / Linux Mint)
+## Install / update (.deb — Debian / Ubuntu / Linux Mint)
 
-**One package for all company PCs** (amd64):
+**One package for all company PCs** (amd64). New builds are published automatically here:
 
 https://github.com/ramchandragada/SignVerifierForLinux/releases/latest
 
-Download the `.deb` from that page (do **not** type `1.0.X` literally), then:
+### Update any PC to the latest release (recommended)
+
+Run this on each Linux PC — it always downloads the **newest** `.deb` from GitHub:
 
 ```bash
 cd ~/Downloads
-# example for the current release — replace with the filename you downloaded:
-sudo apt install ./pdf-sign-verifier_1.0.12_amd64.deb
+DEB_URL=$(curl -fsSL https://api.github.com/repos/ramchandragada/SignVerifierForLinux/releases/latest \
+  | grep -oE 'https://github.com/[^"]+/pdf-sign-verifier_[^"]+_amd64\.deb' | head -1)
+curl -fsSLO "$DEB_URL"
+sudo apt install ./pdf-sign-verifier_*_amd64.deb
+pkill -f pdf-sign-verifier 2>/dev/null || true
 pdf-sign-verifier
 ```
 
-Or download and install in one step:
+Same command works for **first install** and later **updates**.
+
+### Or download from the browser
+
+1. Open https://github.com/ramchandragada/SignVerifierForLinux/releases/latest  
+2. Download the `.deb` (do **not** type a fake `1.0.X` name)  
+3. Install:
 
 ```bash
 cd ~/Downloads
-curl -fsSLO https://github.com/ramchandragada/SignVerifierForLinux/releases/download/v1.0.12/pdf-sign-verifier_1.0.12_amd64.deb
-sudo apt install ./pdf-sign-verifier_1.0.12_amd64.deb
+sudo apt install ./pdf-sign-verifier_*_amd64.deb
 pdf-sign-verifier
 ```
 
