@@ -68,6 +68,10 @@ source "${DIST_DIR}/build-venv/bin/activate"
 pip install -q --upgrade pip wheel
 pip install -q -r "${ROOT}/requirements.txt" pyinstaller tzdata
 
+echo "==> Stamping app version ${VERSION}..."
+# Keep UI/CLI version in sync with the .deb release number.
+sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" "${ROOT}/pdf_sign_verifier/__init__.py"
+
 echo "==> Freezing app with PyInstaller (onedir)..."
 cd "${ROOT}"
 pyinstaller \

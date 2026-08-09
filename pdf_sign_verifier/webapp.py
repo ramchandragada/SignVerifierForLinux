@@ -967,11 +967,32 @@ def api_verification_report():
         )
 
 
+def _pick_port(host: str, preferred: int, attempts: int = 20) -> int:
+    """Use preferred port, or the next free one if it is already taken."""
+    import socket
+
+    for port in range(preferred, preferred + max(1, attempts)):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((host, port))
+            except OSError:
+                continue
+            return port
+    raise OSError(
+        f"No free port found from {preferred} to {preferred + attempts - 1}. "
+        "Stop the old pdf-sign-verifier process, or start with --port 8766"
+    )
+
+
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    url = f"http://{host}:{port}/"
+    chosen = _pick_port(host, port)
+    url = f"http://{host}:{chosen}/"
     if open_browser:
         Timer(0.8, lambda: webbrowser.open(url)).start()
     print(f"PDF Sign Verifier {__version__}")
+    if chosen != port:
+        print(f"Port {port} is busy — using {chosen} instead.")
     print(f"Open {url}  (Ctrl+C to stop)")
     print("Fill blank Amazon NOC → Verify crypto → Save Signature valid NOC")
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    app.run(host=host, port=chosen, debug=False, use_reloader=False)
