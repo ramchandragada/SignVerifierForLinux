@@ -28,146 +28,432 @@ PAGE = r"""
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PDF Sign Verifier</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --ink: #1c2430;
-      --muted: #5b6777;
-      --line: #d7dee8;
-      --bg: #eef3f8;
-      --panel: #ffffff;
+      --ink: #10241f;
+      --muted: #5a6d66;
+      --line: #d5e0da;
+      --bg: #e7f0eb;
+      --panel: rgba(255, 255, 255, 0.82);
+      --panel-solid: #ffffff;
+      --accent: #0f6b56;
+      --accent-deep: #0a4a3c;
+      --accent-soft: #d8f0e7;
+      --gold: #b8892d;
+      --gold-soft: #f7edd4;
       --valid: #0f7a45;
-      --valid-bg: #e6f6ee;
+      --valid-bg: #e4f6ec;
       --modified: #9a6700;
-      --modified-bg: #fff6df;
+      --modified-bg: #fff4d8;
       --untrusted: #0b5cab;
       --untrusted-bg: #e7f1fb;
       --invalid: #b42318;
       --invalid-bg: #fdecea;
       --unsigned: #5b6777;
       --unsigned-bg: #eef1f5;
+      --shadow: 0 18px 50px rgba(16, 36, 31, 0.08);
+      --radius: 18px;
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      min-height: 100vh;
+      font-family: "Sora", "Ubuntu", "Segoe UI", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(1200px 500px at 10% -10%, #d9e8f7 0%, transparent 55%),
-        radial-gradient(900px 400px at 100% 0%, #e4f0e8 0%, transparent 50%),
-        var(--bg);
-      min-height: 100vh;
+        radial-gradient(900px 420px at 8% -8%, #cfe8dc 0%, transparent 55%),
+        radial-gradient(800px 380px at 100% 0%, #f3e7c8 0%, transparent 48%),
+        radial-gradient(700px 360px at 50% 110%, #d7ebe3 0%, transparent 45%),
+        linear-gradient(165deg, #edf5f0 0%, #e8f0eb 42%, #f4f1e8 100%);
+      background-attachment: fixed;
     }
-    main { width: min(880px, calc(100% - 2rem)); margin: 2rem auto 3rem; }
-    h1 {
-      font-family: "IBM Plex Serif", Georgia, serif;
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.35;
+      background-image:
+        linear-gradient(rgba(15, 107, 86, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15, 107, 86, 0.045) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: radial-gradient(ellipse 80% 70% at 50% 20%, #000 30%, transparent 85%);
+    }
+    main {
+      position: relative;
+      width: min(920px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 2.4rem 0 3.2rem;
+    }
+    .hero {
+      animation: rise 0.7s cubic-bezier(.2,.8,.2,1) both;
+      margin-bottom: 1.4rem;
+    }
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      margin-bottom: 0.85rem;
+      color: var(--accent-deep);
+      font-size: 0.78rem;
       font-weight: 600;
-      font-size: clamp(1.8rem, 4vw, 2.4rem);
-      margin: 0 0 0.35rem;
-      letter-spacing: -0.02em;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
     }
-    .tagline { color: var(--muted); margin: 0 0 1.5rem; }
+    .brand-mark .seal {
+      width: 1.55rem;
+      height: 1.55rem;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, var(--accent) 0%, var(--accent-deep) 100%);
+      color: #fff;
+      font-family: "Fraunces", "Liberation Serif", Georgia, serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      box-shadow: 0 6px 16px rgba(15, 107, 86, 0.28);
+      animation: pulse-seal 2.8s ease-in-out infinite;
+    }
+    h1 {
+      font-family: "Fraunces", "Liberation Serif", Georgia, serif;
+      font-weight: 700;
+      font-size: clamp(2.35rem, 6vw, 3.55rem);
+      line-height: 1.05;
+      margin: 0 0 0.7rem;
+      letter-spacing: -0.03em;
+      color: var(--ink);
+      max-width: 14ch;
+    }
+    h1 span {
+      display: inline;
+      background: linear-gradient(120deg, var(--accent-deep) 0%, var(--accent) 55%, #1a7a5f 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .tagline {
+      color: var(--muted);
+      margin: 0;
+      max-width: 40rem;
+      font-size: 1.02rem;
+      line-height: 1.55;
+    }
+    .tagline strong { color: var(--accent-deep); font-weight: 600; }
     .drop {
-      background: var(--panel);
-      border: 1.5px dashed #9db0c7;
-      border-radius: 14px;
-      padding: 2rem 1.25rem;
+      position: relative;
+      margin-top: 1.6rem;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(248,252,250,0.9) 100%);
+      border: 1.5px dashed rgba(15, 107, 86, 0.35);
+      border-radius: calc(var(--radius) + 4px);
+      padding: 2.4rem 1.4rem 1.8rem;
       text-align: center;
-      transition: border-color .15s, background .15s, transform .15s;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      overflow: hidden;
+      transition: border-color .2s, transform .2s, box-shadow .2s, background .2s;
+      animation: rise 0.85s cubic-bezier(.2,.8,.2,1) 0.08s both;
     }
-    .drop.dragover { border-color: #2f6fed; background: #f3f8ff; transform: translateY(-1px); }
+    .drop::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(420px 180px at 50% 0%, rgba(15,107,86,0.08), transparent 70%);
+      pointer-events: none;
+    }
+    .drop > * { position: relative; }
+    .drop.dragover {
+      border-color: var(--accent);
+      border-style: solid;
+      background: linear-gradient(180deg, #eefaf5 0%, #ffffff 100%);
+      transform: translateY(-3px) scale(1.01);
+      box-shadow: 0 22px 55px rgba(15, 107, 86, 0.16);
+    }
+    .drop-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 1rem;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      box-shadow: inset 0 0 0 1px rgba(15,107,86,0.12);
+    }
+    .drop-icon svg { width: 30px; height: 30px; }
     .drop p { margin: 0.35rem 0; color: var(--muted); }
-    .drop strong { color: var(--ink); }
-    input[type=file] { display: none; }
-    .actions { margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
-    button, .btn {
-      appearance: none; border: 0; border-radius: 10px; padding: 0.7rem 1.1rem;
-      font: inherit; font-weight: 600; cursor: pointer; background: #1f4b99; color: white;
-      text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;
+    .drop strong {
+      display: block;
+      color: var(--ink);
+      font-size: 1.15rem;
+      font-weight: 650;
+      margin-bottom: 0.2rem;
     }
-    button.secondary, .btn.secondary { background: #e8eef7; color: #1f4b99; }
-    button.success, .btn.success { background: #0f7a45; color: #fff; }
-    button:disabled { opacity: 0.55; cursor: not-allowed; }
-    .meta { margin-top: 0.9rem; font-size: 0.9rem; color: var(--muted); text-align: center; }
-    #result { margin-top: 1.25rem; }
+    input[type=file] { display: none; }
+    .actions {
+      margin-top: 1.15rem;
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    button, .btn {
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 0.78rem 1.25rem;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(180deg, #148567 0%, var(--accent-deep) 100%);
+      color: white;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      box-shadow: 0 8px 18px rgba(10, 74, 60, 0.22);
+      transition: transform .15s, box-shadow .15s, filter .15s;
+    }
+    button:hover, .btn:hover { transform: translateY(-1px); filter: brightness(1.03); }
+    button:active, .btn:active { transform: translateY(0); }
+    button.secondary, .btn.secondary {
+      background: #edf4f0;
+      color: var(--accent-deep);
+      box-shadow: none;
+      border: 1px solid rgba(15,107,86,0.14);
+    }
+    button.success, .btn.success {
+      background: linear-gradient(180deg, #19a05c 0%, #0f7a45 100%);
+      box-shadow: 0 8px 18px rgba(15, 122, 69, 0.22);
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: none; }
+    .meta {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    #result { margin-top: 1.1rem; }
+    #result:not(:empty) { animation: rise 0.45s cubic-bezier(.2,.8,.2,1) both; }
     .card {
-      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-      padding: 1.1rem 1.2rem; margin-top: 1rem;
+      background: var(--panel-solid);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1.2rem 1.3rem;
+      margin-top: 1rem;
+      box-shadow: 0 10px 28px rgba(16, 36, 31, 0.05);
     }
     .badge {
-      display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 999px;
-      padding: 0.35rem 0.75rem; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.02em;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border-radius: 8px;
+      padding: 0.38rem 0.7rem;
+      font-weight: 700;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
     }
     .VALID { color: var(--valid); background: var(--valid-bg); }
     .MODIFIED { color: var(--modified); background: var(--modified-bg); }
     .UNTRUSTED { color: var(--untrusted); background: var(--untrusted-bg); }
     .INVALID, .ERROR { color: var(--invalid); background: var(--invalid-bg); }
     .UNSIGNED { color: var(--unsigned); background: var(--unsigned-bg); }
-    .headline { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
-    .headline h2 { margin: 0; font-size: 1.2rem; }
+    .headline {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .headline h2 {
+      margin: 0;
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.25rem;
+      font-weight: 650;
+    }
     .adobe-stamp {
-      display: flex; gap: 1rem; align-items: center; margin-top: 1rem;
-      padding: 1rem 1.1rem; border: 1px solid #d7e3d9; border-radius: 12px;
-      background: linear-gradient(180deg, #f7fcf8, #ffffff);
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin-top: 1rem;
+      padding: 1.1rem 1.15rem;
+      border: 1px solid #cfe3d6;
+      border-radius: 14px;
+      background:
+        radial-gradient(280px 120px at 0% 0%, rgba(15,122,69,0.08), transparent 70%),
+        linear-gradient(180deg, #f5fbf7, #ffffff);
     }
     .tick {
-      width: 64px; height: 64px; border-radius: 50%; background: #0f8c46; color: white;
-      display: grid; place-items: center; font-size: 2rem; font-weight: 700; flex-shrink: 0;
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: linear-gradient(160deg, #1aa85a, #0f7a45);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-size: 2rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      box-shadow: 0 10px 22px rgba(15, 122, 69, 0.28);
     }
-    .tick.warn { background: #c48a00; }
-    .tick.bad { background: #b42318; }
-    .tick.ask { background: #e6b800; color: #1c2430; }
-    .adobe-stamp h3 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+    .tick.warn { background: linear-gradient(160deg, #d4a017, #c48a00); box-shadow: 0 10px 22px rgba(196,138,0,0.25); }
+    .tick.bad { background: linear-gradient(160deg, #d6453d, #b42318); box-shadow: 0 10px 22px rgba(180,35,24,0.25); }
+    .tick.ask { background: linear-gradient(160deg, #f0c84a, #e6b800); color: #1c2430; box-shadow: 0 10px 22px rgba(230,184,0,0.22); }
+    .adobe-stamp h3 {
+      margin: 0 0 0.25rem;
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.25rem;
+    }
     .adobe-stamp p { margin: 0.15rem 0; color: var(--ink); }
     .adobe-stamp .sub { color: var(--muted); font-size: 0.92rem; }
     .note {
-      margin-top: 0.85rem; padding: 0.75rem 0.9rem; border-radius: 10px;
-      background: #f4f7fb; color: var(--muted); font-size: 0.92rem; text-align: left;
+      margin-top: 0.85rem;
+      padding: 0.8rem 0.95rem;
+      border-radius: 12px;
+      background: #f3f8f5;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: left;
+      border: 1px solid rgba(15,107,86,0.08);
     }
     .grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 0.75rem; margin-top: 1rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
     }
-    .kv { background: #f7f9fc; border-radius: 10px; padding: 0.75rem 0.85rem; }
-    .kv .k { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .kv .v { margin-top: 0.2rem; font-weight: 600; word-break: break-word; }
+    .kv {
+      background: linear-gradient(180deg, #f6faf8, #f2f6f4);
+      border-radius: 12px;
+      padding: 0.8rem 0.9rem;
+      border: 1px solid rgba(15,107,86,0.06);
+    }
+    .kv .k {
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .kv .v { margin-top: 0.25rem; font-weight: 600; word-break: break-word; }
     .warnings { margin: 0.9rem 0 0; padding-left: 1.1rem; color: #7a4d00; }
     details { margin-top: 0.8rem; color: var(--muted); }
     pre {
-      white-space: pre-wrap; background: #0f1720; color: #d7e2ef; border-radius: 10px;
-      padding: 0.85rem; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap;
+      background: #13201c;
+      color: #d7e8df;
+      border-radius: 12px;
+      padding: 0.9rem;
+      overflow: auto;
+      font-size: 0.82rem;
     }
-    footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; text-align: center; }
-    .noc-form h2 { margin: 0 0 0.35rem; font-size: 1.15rem; }
+    footer {
+      margin-top: 1.8rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    .noc-form h2 {
+      margin: 0 0 0.35rem;
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.35rem;
+    }
     .noc-form .hint { color: var(--muted); margin: 0 0 1rem; font-size: 0.92rem; }
-    .field { margin-bottom: 0.85rem; text-align: left; }
+    .field { margin-bottom: 0.9rem; text-align: left; }
     .field label {
-      display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+      display: block;
+      font-size: 0.74rem;
+      font-weight: 650;
+      color: var(--accent-deep);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.4rem;
     }
     .field input, .field textarea {
-      width: 100%; border: 1px solid var(--line); border-radius: 10px;
-      padding: 0.65rem 0.75rem; font: inherit; background: #fff; color: var(--ink);
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.72rem 0.85rem;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .field input:focus, .field textarea:focus {
+      outline: none;
+      border-color: rgba(15,107,86,0.55);
+      box-shadow: 0 0 0 3px rgba(15,107,86,0.12);
     }
     .field textarea { min-height: 4.2rem; resize: vertical; }
     .field input:disabled, .field textarea:disabled {
-      background: #f1f4f8; color: #3a4656; cursor: not-allowed;
+      background: #f1f5f3;
+      color: #3a4656;
+      cursor: not-allowed;
     }
     .locked-banner {
-      margin-bottom: 1rem; padding: 0.7rem 0.85rem; border-radius: 10px;
-      background: var(--valid-bg); color: var(--valid); font-size: 0.92rem; font-weight: 600;
+      margin-bottom: 1rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      background: var(--valid-bg);
+      color: var(--valid);
+      font-size: 0.92rem;
+      font-weight: 600;
+      border: 1px solid rgba(15,122,69,0.15);
     }
     .fill-banner {
-      margin-bottom: 1rem; padding: 0.7rem 0.85rem; border-radius: 10px;
-      background: var(--modified-bg); color: var(--modified); font-size: 0.92rem; font-weight: 600;
+      margin-bottom: 1rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      background: var(--gold-soft);
+      color: #8a5f12;
+      font-size: 0.92rem;
+      font-weight: 600;
+      border: 1px solid rgba(184,137,45,0.22);
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-seal {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+    }
+    @media (max-width: 640px) {
+      main { padding-top: 1.5rem; }
+      h1 { max-width: none; }
+      .drop { padding: 1.8rem 1rem 1.4rem; }
+      .adobe-stamp { flex-direction: column; align-items: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
     }
   </style>
 </head>
 <body>
   <main>
-    <h1>PDF Sign Verifier</h1>
-    <p class="tagline">Fill Amazon blank NOC merchant details when needed, verify the real signature, then save the NOC with Adobe-style <strong>Signature valid</strong> green tick.</p>
+    <header class="hero">
+      <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Local · Offline-ready</div>
+      <h1>PDF Sign <span>Verifier</span></h1>
+      <p class="tagline">Fill Amazon blank NOC details when needed, verify the real digital signature, then save an Adobe-style <strong>Signature valid</strong> green tick for upload.</p>
+    </header>
 
     <div class="drop" id="drop">
+      <div class="drop-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+          <path d="M14 3v5h5"/>
+          <path d="M12 11v6"/>
+          <path d="M9.5 13.5 12 11l2.5 2.5"/>
+        </svg>
+      </div>
       <p><strong>Drop the original digitally signed PDF</strong></p>
       <p>Blank Amazon NOCs can be filled here, then cryptographically verified.</p>
       <div class="actions">
