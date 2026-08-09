@@ -10,7 +10,13 @@ from .authentic import (
     build_verification_report_pdf,
     is_cryptographically_verified,
 )
-from .trust_store import DEFAULT_TRUST_DIR, trust_root_names
+from .batch import verify_folder, verify_many
+from .irn_qr import inspect_pdf_for_irn, inspect_text_payload, verify_irn_online
+from .trust_store import (
+    DEFAULT_TRUST_DIR,
+    load_intermediate_certs,
+    trust_root_names,
+)
 from .verified_appearance import export_verified_appearance_pdf
 from .verifier import verify_pdf
 
@@ -53,7 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pdf-sign-verifier",
         description=(
-            "Cryptographically verify PDF digital signatures using India's CCA trust roots. "
+            "Verify Indian DSC / CCA-chained PDF digital signatures on Linux. "
+            "Amazon blank-NOC fill remains available in the web UI. "
             "Does not photoshop green ticks onto documents."
         ),
     )
@@ -67,12 +74,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--list-roots",
         action="store_true",
-        help="List loaded trust roots and exit",
+        help="List loaded trust roots / intermediates and exit",
     )
     parser.add_argument(
         "--allow-fetching",
         action="store_true",
         help="Allow online CRL/OCSP/AIA fetching during validation",
+    )
+    parser.add_argument(
+        "--batch",
+        metavar="DIR",
+        help="Verify all PDFs in a folder (for CA firms / bulk desks)",
+    )
+    parser.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="With --batch, do not recurse into subfolders",
+    )
+    parser.add_argument(
+        "--irn",
+        metavar="IRN_OR_PDF",
+        help="Optional GST IRN helper: 64-hex IRN, QR text, or PDF path to scan",
     )
     parser.add_argument(
         "--export-verified-noc",
@@ -94,21 +116,65 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list_roots:
         try:
+            print("Trust anchors (CCA India):")
             for name in trust_root_names(Path(args.trust_dir)):
-                print(name)
+                print(f"  {name}")
+            print("Bundled intermediates (licensed CAs):")
+            for cert in load_intermediate_certs(Path(args.trust_dir)):
+                native = cert.subject.native
+                cn = native.get("common_name") or str(native)
+                print(f"  {cn}")
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 2
         return 0
 
+    if args.irn:
+        target = args.irn.strip()
+        path = Path(target)
+        if path.is_file() and path.suffix.lower() == ".pdf":
+            result = inspect_pdf_for_irn(path)
+        elif len(target) == 64 and all(c in "0123456789abcdefABCDEF" for c in target):
+            result = verify_irn_online(target)
+        else:
+            result = inspect_text_payload(target, source="cli")
+        if args.json:
+            print(json.dumps(result.to_dict(), indent=2))
+        else:
+            print(json.dumps(result.to_dict(), indent=2))
+        return 0 if result.found else 1
+
+    if args.batch:
+        batch = verify_folder(
+            args.batch,
+            recursive=not args.no_recursive,
+            trust_dir=args.trust_dir,
+            allow_fetching=args.allow_fetching,
+        )
+        if args.json:
+            print(json.dumps(batch.to_dict(), indent=2))
+        else:
+            print(
+                f"Batch: {batch.total} PDFs · verified {batch.verified} · "
+                f"failed {batch.failed} · unsigned {batch.unsigned} · errors {batch.errors}"
+            )
+            for item in batch.results:
+                mark = "PASS" if item.cryptographically_verified else item.overall
+                print(f"  [{mark}] {item.file_name} — {item.overall_label}")
+        return 0 if batch.failed == 0 and batch.total > 0 else 1
+
     if not args.pdf:
         parser.print_help()
         return 2
 
+    # Multi-file CLI: space-separated extras via nargs would need change;
+    # support verifying a list if path is missing but unknown leftovers exist — skip.
     report = verify_pdf(args.pdf, trust_dir=args.trust_dir, allow_fetching=args.allow_fetching)
     if args.json:
         data = report.to_dict()
         data["cryptographically_verified"] = is_cryptographically_verified(report)
+        data["api_version"] = 1
+        data["tool"] = f"pdf-sign-verifier/{__version__}"
         print(json.dumps(data, indent=2))
     else:
         _print_human(report)

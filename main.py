@@ -11,7 +11,9 @@ if str(ROOT) not in sys.path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="PDF Sign Verifier")
+    parser = argparse.ArgumentParser(
+        description="PDF Sign Verifier — Indian DSC / CCA PDF signature checks on Linux"
+    )
     parser.add_argument("pdf", nargs="?", help="PDF to verify (CLI mode)")
     parser.add_argument("--cli", action="store_true", help="Force CLI output")
     parser.add_argument("--json", action="store_true", help="JSON output (CLI)")
@@ -22,6 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trust-dir", default=None)
     parser.add_argument("--list-roots", action="store_true")
     parser.add_argument("--allow-fetching", action="store_true")
+    parser.add_argument("--batch", metavar="DIR", help="Verify all PDFs in a folder")
+    parser.add_argument("--no-recursive", action="store_true")
+    parser.add_argument("--irn", metavar="IRN_OR_PDF", help="Optional GST IRN helper")
     parser.add_argument("--copy-if-verified", metavar="OUT.pdf")
     parser.add_argument("--export-verified-noc", metavar="OUT.pdf")
     parser.add_argument("--report", metavar="REPORT.pdf")
@@ -31,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
         args.pdf is None
         and not args.list_roots
         and not args.cli
+        and not args.batch
+        and not args.irn
         and not args.copy_if_verified
         and not args.export_verified_noc
         and not args.report
@@ -51,6 +58,12 @@ def main(argv: list[str] | None = None) -> int:
         cli_argv.append("--allow-fetching")
     if args.trust_dir:
         cli_argv.extend(["--trust-dir", args.trust_dir])
+    if args.batch:
+        cli_argv.extend(["--batch", args.batch])
+    if args.no_recursive:
+        cli_argv.append("--no-recursive")
+    if args.irn:
+        cli_argv.extend(["--irn", args.irn])
     if args.export_verified_noc:
         cli_argv.extend(["--export-verified-noc", args.export_verified_noc])
     if args.report:

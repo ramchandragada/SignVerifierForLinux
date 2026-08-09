@@ -45,10 +45,14 @@ def build_verification_report_pdf(report: VerificationReport) -> bytes:
     verified = is_cryptographically_verified(report)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
+    from . import __version__
+
     line("PDF Digital Signature — Verification Report", size=16, bold=True, gap=10 * mm)
     line("This is NOT the signed document. It is an audit report only.", size=10, gap=8 * mm)
     line(f"Generated: {now}", size=10)
-    line(f"Tool: PDF Sign Verifier", size=10, gap=8 * mm)
+    line(f"Tool: PDF Sign Verifier {__version__}", size=10)
+    line("Trust profile: India CCA roots + licensed CA intermediates", size=10, gap=8 * mm)
+    line("API: POST /api/v1/verify  ·  CLI: --json  ·  Batch: --batch DIR", size=9, gap=8 * mm)
 
     line(f"Document: {report.file_name}", bold=True)
     line(f"Path checked: {report.path}", size=9, gap=4 * mm)

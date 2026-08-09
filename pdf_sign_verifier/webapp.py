@@ -13,13 +13,15 @@ from .authentic import (
     build_verification_report_pdf,
     is_cryptographically_verified,
 )
+from .batch import verify_many
+from .irn_qr import inspect_pdf_for_irn, inspect_text_payload, verify_irn_online
 from .noc_fields import fill_noc_form, inspect_noc_form
-from .trust_store import DEFAULT_TRUST_DIR, trust_root_names
+from .trust_store import DEFAULT_TRUST_DIR, load_intermediate_certs, trust_root_names
 from .verified_appearance import export_verified_appearance_pdf
 from .verifier import verify_pdf
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 120 * 1024 * 1024
 
 PAGE = r"""
 <!DOCTYPE html>
@@ -27,7 +29,7 @@ PAGE = r"""
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PDF Sign Verifier</title>
+  <title>PDF Sign Verifier · Indian DSC on Linux</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -440,9 +442,9 @@ PAGE = r"""
 <body>
   <main>
     <header class="hero">
-      <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Local · Offline-ready</div>
+      <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Indian DSC · CCA trust · Linux</div>
       <h1>PDF Sign <span>Verifier</span></h1>
-      <p class="tagline">Fill Amazon blank NOC details when needed, verify the real digital signature, then save an Adobe-style <strong>Signature valid</strong> green tick for upload.</p>
+      <p class="tagline">Cryptographically verify Indian DSC-signed PDFs on Linux — no Windows, no Adobe. Amazon blank NOC fill stays fully supported when that form is detected.</p>
     </header>
 
     <div class="drop" id="drop">
@@ -454,18 +456,31 @@ PAGE = r"""
           <path d="M9.5 13.5 12 11l2.5 2.5"/>
         </svg>
       </div>
-      <p><strong>Drop the original digitally signed PDF</strong></p>
-      <p>Blank Amazon NOCs can be filled here, then cryptographically verified.</p>
+      <p><strong>Drop one signed PDF — or several for batch verify</strong></p>
+      <p>PKCS#7 / CMS check against CCA India roots + licensed CA intermediates.</p>
       <div class="actions">
-        <button type="button" id="browse">Choose PDF</button>
+        <button type="button" id="browse">Choose PDF(s)</button>
         <button type="button" class="secondary" id="clear" hidden>Clear</button>
       </div>
-      <input id="file" type="file" accept="application/pdf,.pdf" />
+      <input id="file" type="file" accept="application/pdf,.pdf" multiple />
       <div class="meta" id="fileMeta">No file selected</div>
     </div>
 
+    <div class="card" style="margin-top:1rem">
+      <h2 style="margin:0 0 0.35rem;font-family:Fraunces,Georgia,serif;font-size:1.15rem">Optional: GST IRN helper</h2>
+      <p class="meta" style="text-align:left;margin:0 0 0.8rem">Separate from PDF DSC verify. Paste a 64-character IRN or QR JSON text.</p>
+      <div class="field">
+        <label for="irnInput">IRN / QR payload</label>
+        <textarea id="irnInput" placeholder="Paste IRN (64 hex) or QR JSON"></textarea>
+      </div>
+      <div class="actions" style="justify-content:flex-start;margin-top:0">
+        <button type="button" class="secondary" id="irnBtn">Inspect IRN</button>
+      </div>
+      <pre id="irnOut" hidden style="margin-top:0.8rem"></pre>
+    </div>
+
     <div id="result"></div>
-    <footer>PDF Sign Verifier {{ version }} · Trust roots: {{ root_count }} (CCA India bundled)</footer>
+    <footer>PDF Sign Verifier {{ version }} · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
   </main>
 
   <script>
@@ -493,20 +508,87 @@ PAGE = r"""
       e.preventDefault(); drop.classList.remove('dragover');
     }));
     drop.addEventListener('drop', e => {
-      const file = e.dataTransfer.files?.[0];
-      if (file) handlePdf(file);
+      const files = [...(e.dataTransfer.files || [])].filter(f => /\.pdf$/i.test(f.name));
+      if (files.length) handleFiles(files);
     });
     fileInput.addEventListener('change', () => {
-      const file = fileInput.files?.[0];
-      if (file) handlePdf(file);
+      const files = [...(fileInput.files || [])];
+      if (files.length) handleFiles(files);
     });
+
+    document.getElementById('irnBtn')?.addEventListener('click', async () => {
+      const text = document.getElementById('irnInput')?.value?.trim() || '';
+      const out = document.getElementById('irnOut');
+      if (!text) { alert('Paste an IRN or QR payload first.'); return; }
+      const body = new FormData();
+      body.append('payload', text);
+      try {
+        const res = await fetch('/api/irn-inspect', { method: 'POST', body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'IRN inspect failed');
+        out.hidden = false;
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        out.hidden = false;
+        out.textContent = String(err.message || err);
+      }
+    });
+
+    async function handleFiles(files) {
+      clearBtn.hidden = false;
+      if (files.length === 1) {
+        await handlePdf(files[0]);
+        return;
+      }
+      await handleBatch(files);
+    }
+
+    async function handleBatch(files) {
+      lastFile = null;
+      fileMeta.textContent = `Batch checking ${files.length} PDFs…`;
+      browse.disabled = true;
+      result.innerHTML = `<div class="card">Running batch cryptographic verification…</div>`;
+      const body = new FormData();
+      for (const f of files) body.append('pdfs', f);
+      try {
+        const res = await fetch('/api/batch-verify', { method: 'POST', body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Batch verification failed');
+        result.innerHTML = renderBatch(data);
+      } catch (err) {
+        result.innerHTML = `<div class="card"><span class="badge ERROR">ERROR</span><p>${esc(err.message)}</p></div>`;
+      } finally {
+        browse.disabled = false;
+      }
+    }
+
+    function renderBatch(data) {
+      const rows = (data.results || []).map(item => `
+        <div class="kv">
+          <div class="k">${esc(item.file_name)}</div>
+          <div class="v"><span class="badge ${esc(item.cryptographically_verified ? 'VALID' : item.overall)}">${esc(item.cryptographically_verified ? 'PASS' : item.overall)}</span> ${esc(item.overall_label || '')}</div>
+        </div>`).join('');
+      return `
+        <div class="card">
+          <div class="headline">
+            <div>
+              <h2>Batch verification</h2>
+              <div class="meta" style="text-align:left;margin:0.35rem 0 0">
+                ${data.total} PDFs · verified ${data.verified} · failed ${data.failed} · unsigned ${data.unsigned}
+              </div>
+            </div>
+          </div>
+          <div class="grid">${rows}</div>
+          <div class="note">Amazon blank-NOC fill works on a single PDF drop (not in batch mode).</div>
+        </div>`;
+    }
 
     async function handlePdf(file) {
       lastFile = file;
       fileMeta.textContent = `Checking: ${file.name} (${Math.round(file.size/1024)} KB)`;
       clearBtn.hidden = false;
       browse.disabled = true;
-      result.innerHTML = `<div class="card">Inspecting NOC fields and signature…</div>`;
+      result.innerHTML = `<div class="card">Inspecting signature (and Amazon NOC fields if present)…</div>`;
       const body = new FormData();
       body.append('pdf', file);
       try {
@@ -826,6 +908,8 @@ def _report_payload(report, upload_name: str, path: Path) -> dict:
     data["cryptographically_verified"] = is_cryptographically_verified(report)
     data["is_visual_noc"] = _is_visual_noc_export(path)
     data["noc_form"] = inspect_noc_form(path).to_dict()
+    data["api_version"] = 1
+    data["tool"] = f"pdf-sign-verifier/{__version__}"
     return data
 
 
@@ -834,29 +918,88 @@ def home():
     try:
         roots = trust_root_names(DEFAULT_TRUST_DIR)
         root_count = len(roots)
+        inter_count = len(load_intermediate_certs(DEFAULT_TRUST_DIR))
     except Exception:
         root_count = 0
-    return render_template_string(PAGE, version=__version__, root_count=root_count)
+        inter_count = 0
+    return render_template_string(
+        PAGE, version=__version__, root_count=root_count, inter_count=inter_count
+    )
 
 
-@app.post("/api/verify")
-def api_verify():
-    upload = request.files.get("pdf")
+def _verify_upload_to_json(upload) -> tuple[dict, int]:
     if upload is None or not upload.filename:
-        return jsonify({"error": "No PDF uploaded"}), 400
+        return {"error": "No PDF uploaded"}, 400
     if not upload.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Please upload a .pdf file"}), 400
+        return {"error": "Please upload a .pdf file"}, 400
 
     with tempfile.TemporaryDirectory(prefix="pdfsig-") as tmp:
         target = Path(tmp) / Path(upload.filename).name
         upload.save(target)
         noc = inspect_noc_form(target)
-        # Blank NOCs: return form status first; still verify so crypto status is known.
         report = verify_pdf(target)
         data = _report_payload(report, upload.filename, target)
         if noc.needs_fill:
             data["awaiting_fill"] = True
-        return jsonify(data)
+        return data, 200
+
+
+@app.post("/api/verify")
+@app.post("/api/v1/verify")
+def api_verify():
+    """Primary verify API (also aliased for ERP integrations)."""
+    data, status = _verify_upload_to_json(request.files.get("pdf"))
+    return jsonify(data), status
+
+
+@app.post("/api/batch-verify")
+@app.post("/api/v1/batch-verify")
+def api_batch_verify():
+    uploads = request.files.getlist("pdfs") or request.files.getlist("pdf")
+    uploads = [u for u in uploads if u and u.filename]
+    if not uploads:
+        return jsonify({"error": "No PDFs uploaded"}), 400
+
+    with tempfile.TemporaryDirectory(prefix="pdfsig-batch-") as tmp:
+        paths: list[Path] = []
+        for index, upload in enumerate(uploads):
+            name = Path(upload.filename).name
+            target = Path(tmp) / f"{index:04d}_{name}"
+            upload.save(target)
+            paths.append(target)
+        items = verify_many(paths)
+        verified = sum(1 for r in items if r.cryptographically_verified)
+        unsigned = sum(1 for r in items if r.overall == "UNSIGNED")
+        errors = sum(1 for r in items if r.overall == "ERROR")
+        payload = {
+            "api_version": 1,
+            "tool": f"pdf-sign-verifier/{__version__}",
+            "total": len(items),
+            "verified": verified,
+            "failed": len(items) - verified,
+            "unsigned": unsigned,
+            "errors": errors,
+            "results": [r.to_dict() for r in items],
+        }
+        return jsonify(payload)
+
+
+@app.post("/api/irn-inspect")
+@app.post("/api/v1/irn-inspect")
+def api_irn_inspect():
+    """Optional GST IRN helper — does not affect Amazon NOC / DSC verify."""
+    upload = request.files.get("pdf")
+    payload = (request.form.get("payload") or request.form.get("irn") or "").strip()
+    if upload and upload.filename:
+        with tempfile.TemporaryDirectory(prefix="pdfsig-irn-") as tmp:
+            target = Path(tmp) / Path(upload.filename).name
+            upload.save(target)
+            return jsonify(inspect_pdf_for_irn(target).to_dict())
+    if not payload:
+        return jsonify({"error": "Provide payload= IRN/QR text or pdf= file"}), 400
+    if len(payload) == 64 and all(c in "0123456789abcdefABCDEF" for c in payload):
+        return jsonify(verify_irn_online(payload).to_dict())
+    return jsonify(inspect_text_payload(payload, source="api").to_dict())
 
 
 @app.post("/api/fill-and-verify")
@@ -994,5 +1137,6 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
     if chosen != port:
         print(f"Port {port} is busy — using {chosen} instead.")
     print(f"Open {url}  (Ctrl+C to stop)")
-    print("Fill blank Amazon NOC → Verify crypto → Save Signature valid NOC")
+    print("Verify Indian DSC PDFs · Batch folder · Amazon NOC fill · optional IRN helper")
+    print("API: POST /api/v1/verify  |  /api/v1/batch-verify  |  /api/v1/irn-inspect")
     app.run(host=host, port=chosen, debug=False, use_reloader=False)

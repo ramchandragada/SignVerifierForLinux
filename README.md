@@ -1,6 +1,8 @@
 # PDF Sign Verifier
 
-Lightweight Linux tool to **cryptographically verify** PDF digital signatures (Amazon NOC / Indian DSC) without VirtualBox or Adobe Acrobat.
+Linux-native tool to **cryptographically verify Indian DSC / CCA-chained PDF signatures** — without Windows, VirtualBox, or Adobe Acrobat.
+
+Built first for **Amazon blank NOC** workflows (still fully supported). Also useful for MCA filings, tenders, bank packs, and any PKCS#7-signed PDF that chains to CCA India.
 
 ## Important: what is “real” verification?
 
@@ -68,29 +70,66 @@ cd SignVerifierForLinux
 ./run.sh                  # web UI → http://127.0.0.1:8765
 ./run.sh --cli file.pdf   # terminal check
 ./run.sh --cli file.pdf --report ~/Downloads/report.pdf
+./run.sh --batch ~/Documents/signed-pdfs --json
 ./run.sh --list-roots
+./run.sh --irn <64-hex-IRN-or-pdf>
 ```
 
-## Amazon blank NOC (service provider)
+## Amazon blank NOC (service provider) — primary workflow
 
 Amazon may issue a **digitally signed blank NOC**. In the web UI:
 
-1. Drop the signed blank PDF.
+1. Drop the signed blank PDF (**single file**).
 2. If merchant fields are empty, enter **Date**, **M/S**, **M/s.**, and **Maharashtra address**, then **Fill & Verify**.
 3. If those fields are already filled, they are **locked** and the signature is verified immediately.
 
 Filling blank fields after Amazon’s signature is expected; the crypto check still validates Amazon’s signature (status may show **MODIFIED** because the form was completed after signing).
 
+## Batch verify (CA firms / desks)
+
+```bash
+./run.sh --batch /path/to/folder
+./run.sh --batch /path/to/folder --json
+```
+
+Or drop **multiple PDFs** on the web UI. Amazon NOC fill stays single-PDF only.
+
+## JSON API (ERP / scripts)
+
+Local Flask server (same process as the UI):
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/v1/verify` | multipart `pdf=@file.pdf` → JSON report |
+| `POST /api/v1/batch-verify` | multipart `pdfs=@a.pdf` `pdfs=@b.pdf` |
+| `POST /api/v1/irn-inspect` | optional GST IRN helper (`payload=` or `pdf=`) |
+| `POST /api/fill-and-verify` | Amazon blank NOC fill + verify (unchanged) |
+
+Example:
+
+```bash
+curl -sS -F pdf=@signed.pdf http://127.0.0.1:8765/api/v1/verify | jq .overall
+```
+
+## Optional GST IRN helper
+
+e-Invoice IRN / signed QR is a **separate** trust path from PDF DSC signatures. Use `--irn` or the UI helper to inspect IRN-shaped values. Online IRP lookup is opt-in via `PDF_SIGN_VERIFIER_IRN_URL`.
+
 ## Results
 
 - **VALID** — signature intact + trusted (CCA India)
 - **MODIFIED** — signature intact + trusted, but file changed after signing
-- **UNTRUSTED** — signature intact, root not trusted
+- **UNTRUSTED** — signature intact, chain not trusted
 - **INVALID** / **UNSIGNED**
 
-## Trust roots
+## Trust roots & intermediates
 
-Bundled under `trust/` from [CCA India](https://cca.gov.in/root_certificate.html).
+Bundled under `trust/`:
+
+- **Roots:** [CCA India](https://cca.gov.in/root_certificate.html) (2015 SPL, 2022, 2022 SPL)
+- **Intermediates:** licensed CAs under RCAI 2022 / SPL from [cca.gov.in](https://cca.gov.in/display_cert2022.php) (e-Mudhra, Capricorn, (n)Code, SafeScrypt, Verasys, and others)
+
+`./run.sh --list-roots` prints what is loaded.
 
 ## First-time setup (other PCs)
 
