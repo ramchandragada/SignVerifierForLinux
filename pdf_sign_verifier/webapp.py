@@ -120,10 +120,12 @@ PAGE = r"""
       -webkit-app-region: no-drag;
     }
     .aspera-logo {
-      height: 36px;
+      height: 28px;
       width: auto;
+      max-width: 168px;
+      object-fit: contain;
       display: block;
-      border-radius: 8px;
+      border-radius: 4px;
       -webkit-app-region: no-drag;
     }
     .app-body {
@@ -522,7 +524,7 @@ PAGE = r"""
 <body>
   <div class="app-shell">
     <header class="titlebar">
-      <img class="aspera-logo" src="/brand/aspera-logo.svg" alt="Aspera" />
+      <img class="aspera-logo" src="/brand/aspera-logo.png" alt="Aspera" />
       <div class="titlebar-text">
         <strong>PDF Sign Verifier</strong>
         <span>Indian DSC · CCA trust · Linux</span>
@@ -1361,8 +1363,16 @@ def _static_dir() -> Path:
     return PACKAGE_ROOT / "static"
 
 
-@app.get("/brand/aspera-logo.svg")
+@app.get("/brand/aspera-logo.png")
 def aspera_logo():
+    return send_from_directory(_static_dir(), "aspera-logo.png", mimetype="image/png")
+
+
+@app.get("/brand/aspera-logo.svg")
+def aspera_logo_svg():
+    png = _static_dir() / "aspera-logo.png"
+    if png.is_file():
+        return send_from_directory(_static_dir(), "aspera-logo.png", mimetype="image/png")
     return send_from_directory(_static_dir(), "aspera-logo.svg", mimetype="image/svg+xml")
 
 
@@ -1768,27 +1778,18 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
     print(f"PDF Sign Verifier {__version__}")
     if chosen != port:
         print(f"Port {port} is busy — using {chosen} instead.")
-    print(f"App window: {url}")
+    print(f"App: {url}")
+    print("Keep this terminal open while the app is running.")
 
-    if not open_browser:
-        app.run(host=host, port=chosen, debug=False, use_reloader=False)
-        return
+    if open_browser:
+        def _launch() -> None:
+            _wait_for_server(url)
+            if _open_chrome_app_window(url):
+                return
+            webbrowser.open(url)
 
-    server = threading.Thread(
-        target=lambda: app.run(host=host, port=chosen, debug=False, use_reloader=False),
-        daemon=True,
-    )
-    server.start()
-    _wait_for_server(url)
-    if _open_webview(url):
-        return
-    chrome = _open_chrome_app_window(url)
-    if chrome is not None:
-        chrome.wait()
-        return
-    webbrowser.open(url)
-    try:
-        while server.is_alive():
-            time.sleep(0.4)
-    except KeyboardInterrupt:
-        return
+        threading.Timer(0.5, _launch).start()
+
+    # Flask must stay on the main thread. If it runs as a daemon and the
+    # window process exits, the server dies and the UI shows connection refused.
+    app.run(host=host, port=chosen, debug=False, use_reloader=False, threaded=True)
