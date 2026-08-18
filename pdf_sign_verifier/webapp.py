@@ -646,8 +646,6 @@ PAGE = r"""
       'Karnataka',
       'Tamilnadu',
     ];
-    const LATUR_AUTO_ADDRESS =
-      'R-4/3051, FLAT NO. A/03, TIRUPATI VIHAR, NEAR BALAJI MANDIR, PAPVINASH ROAD, LATUR-413512.';
 
     function toDateInputValue(v) {
       const raw = String(v || '').trim();
@@ -967,23 +965,6 @@ PAGE = r"""
         });
         dynMs2.addEventListener('input', () => { dynMs2.dataset.touched = '1'; });
       }
-
-      // Branch-driven address autofill for Latur template usage.
-      const branchEl = document.querySelector('[data-noc-field="branch"]');
-      const addrEl = document.querySelector('[data-noc-field="address"]');
-      if (branchEl && addrEl && !addrEl.disabled) {
-        const applyBranchAddress = () => {
-          if (branchEl.value === 'Latur Maharashtra') {
-            addrEl.value = LATUR_AUTO_ADDRESS;
-            addrEl.dataset.autofilled = '1';
-          } else if (addrEl.dataset.autofilled === '1') {
-            addrEl.value = '';
-            delete addrEl.dataset.autofilled;
-          }
-        };
-        branchEl.addEventListener('change', applyBranchAddress);
-        if (!addrEl.value) applyBranchAddress();
-      }
     }
 
     function fieldValue(noc, name) {
@@ -1009,7 +990,7 @@ PAGE = r"""
       }
       const title = nax ? 'Amazon NAX blank NOC' : 'Amazon NOC merchant details';
       const hint = nax
-        ? 'Date (calendar) · Branch (dropdown) · State (dropdown) · M/S · M/s. · Merchant address. FC address is pre-printed on the NOC.'
+        ? 'Date (calendar) · Branch (dropdown) · State (dropdown) · M/S · M/s. · Merchant address is typed each time. FC address is pre-printed on the NOC.'
         : 'Date · M/S · M/s. · Main place of business in Maharashtra. M/S and M/s. use the same seller name on Amazon’s form.';
       const fields = noc.fields || [];
       const inputs = fields.map((f, i) => {
@@ -1023,8 +1004,9 @@ PAGE = r"""
           control = renderSelect(id, f.name, BRANCH_OPTIONS, f.value || '', dis);
         } else if (nax && f.name === 'state') {
           control = renderSelect(id, f.name, STATE_OPTIONS, f.value || '', dis);
-        } else if (f.multiline) {
-          control = `<textarea id="${id}" data-noc-field="${esc(f.name)}" placeholder="${ph}" ${dis}>${val}</textarea>`;
+        } else if (f.name === 'address' || f.multiline) {
+          const addrPh = f.name === 'address' ? 'Type merchant place of business (new address each time)' : ph;
+          control = `<textarea id="${id}" data-noc-field="${esc(f.name)}" placeholder="${esc(addrPh)}" ${dis}>${val}</textarea>`;
         } else {
           control = `<input id="${id}" data-noc-field="${esc(f.name)}" type="text" placeholder="${ph}" value="${val}" ${dis} />`;
         }
