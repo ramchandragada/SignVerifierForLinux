@@ -495,6 +495,13 @@ PAGE = r"""
         <h2>Fill Blank Signed NOC</h2>
         <p>NOC is blank (dotted lines / empty fields). <strong>Add seller name, date, address</strong> first, then verify the digital signature.</p>
       </div>
+      <div class="mode-card" id="modeBsa">
+        <div class="mode-icon" style="background:var(--untrusted-bg);color:var(--untrusted)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px"><path d="M4 4h16v16H4z"/><path d="M9 9h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+        </div>
+        <h2>Verify BSA Agreement</h2>
+        <p>Amazon Business Solutions Agreement (BSA). Drop the signed PDF to <strong>verify the digital signature</strong> — no form fill needed.</p>
+      </div>
     </div>
 
     <div id="workArea" hidden>
@@ -557,6 +564,7 @@ PAGE = r"""
 
     document.getElementById('modeVerify').addEventListener('click', () => enterMode('verify'));
     document.getElementById('modeBlank').addEventListener('click', () => enterMode('blank'));
+    document.getElementById('modeBsa').addEventListener('click', () => enterMode('bsa'));
 
     function enterMode(mode) {
       currentMode = mode;
@@ -571,6 +579,10 @@ PAGE = r"""
         dropLabel.textContent = 'Drop the pre-filled signed NOC / any signed PDF';
         dropHint.textContent = 'Signature will be verified immediately. For batch, select multiple files.';
         fileInput.multiple = true;
+      } else if (mode === 'bsa') {
+        dropLabel.textContent = 'Drop the signed BSA agreement PDF';
+        dropHint.textContent = 'Amazon Business Solutions Agreement — digital signature verification only.';
+        fileInput.multiple = false;
       } else {
         dropLabel.textContent = 'Drop the blank signed NOC';
         dropHint.textContent = 'We\u2019ll detect blank fields so you can add seller name, date, address — then verify.';
@@ -702,7 +714,9 @@ PAGE = r"""
     function renderAll(data) {
       const noc = data.noc_form || {};
       let html = '';
-      if (currentMode === 'blank' && noc.is_amazon_noc) {
+      if (currentMode === 'bsa') {
+        html += renderReport(data);
+      } else if (currentMode === 'blank' && noc.is_amazon_noc) {
         html += renderNocForm(noc, data);
         if (noc.needs_fill) {
           if (data.signatures?.length) {
