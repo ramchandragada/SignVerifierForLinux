@@ -431,64 +431,6 @@ def _dot_bands(page: fitz.Page) -> list[fitz.Rect]:
     return bands
 
 
-def _expand_band(page: fitz.Page, band: fitz.Rect) -> fitz.Rect:
-    """Grow a band across leftover dots, stopping before the next real word."""
-    extra = [band]
-    cy = (band.y0 + band.y1) / 2
-    for rect in _dotted_spans(page):
-        rcy = (rect.y0 + rect.y1) / 2
-        if abs(rcy - cy) <= 3.5 and rect.x0 >= band.x0 - 10:
-            extra.append(rect)
-    grown = _union_rects(extra) or band
-    next_word_x: float | None = None
-    try:
-        words = page.get_text("words") or []
-    except Exception:
-        words = []
-    for item in words:
-        wx0, wy0, wx1, wy1, word = item[:5]
-        if abs(((wy0 + wy1) / 2) - cy) > 4:
-            continue
-        if wx0 <= grown.x0 + 1:
-            continue
-        if _is_dot_run(str(word)):
-            grown.x1 = max(grown.x1, float(wx1))
-            continue
-        next_word_x = float(wx0) if next_word_x is None else min(next_word_x, float(wx0))
-    if next_word_x is not None:
-        grown.x1 = max(grown.x1, next_word_x - 1.0)
-    return grown
-
-
-def _cover_band(page: fitz.Page, rect: fitz.Rect) -> fitz.Rect:
-    """Paint out placeholder dots so leftover '........' cannot show through."""
-    pad = fitz.Rect(rect.x0 - 0.6, rect.y0 - 1.8, rect.x1 + 2.4, rect.y1 + 1.8)
-    page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
-    try:
-        cy = (rect.y0 + rect.y1) / 2
-        for drawing in page.get_drawings() or []:
-            drect = drawing.get("rect")
-            if drect is None:
-                continue
-            if drect.height > 8 or drect.width < 12:
-                continue
-            if abs((drect.y0 + drect.y1) / 2 - cy) > 3.5:
-                continue
-            if drect.x1 < rect.x0 - 16 or drect.x0 > rect.x1 + 16:
-                continue
-            page.draw_rect(
-                fitz.Rect(drect.x0 - 0.4, drect.y0 - 1.2, drect.x1 + 0.4, drect.y1 + 1.2),
-                color=(1, 1, 1),
-                fill=(1, 1, 1),
-                width=0,
-                overlay=True,
-            )
-            pad = _union_rects([pad, fitz.Rect(drect)]) or pad
-    except Exception:
-        pass
-    return pad
-
-
 def _split_two_lines(text: str, max_chars: int = 92) -> tuple[str, str]:
     text = _clean(text)
     if len(text) <= max_chars:
@@ -509,16 +451,13 @@ def _fit_fontsize(text: str, width: float, *, max_size: float = 9.0, min_size: f
 
 
 def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 9.0) -> None:
-    """Cover leftover dots, then write text centered in the placeholder band."""
-    band = _expand_band(page, rect)
-    pad = _cover_band(page, band)
+    """Write filled text on top of the original dotted line. Do not erase template dots or nearby printed words."""
     if not text:
         return
-    fs = _fit_fontsize(text, max(pad.width - 2, 20), max_size=fontsize)
-    band_h = pad.height
-    y_baseline = pad.y0 + (band_h + fs * 0.72) / 2
+    fs = _fit_fontsize(text, max(rect.width - 2, 20), max_size=fontsize)
+    y_baseline = rect.y0 + (rect.height + fs * 0.72) / 2
     page.insert_text(
-        fitz.Point(pad.x0 + 1, y_baseline),
+        fitz.Point(rect.x0 + 1, y_baseline),
         text,
         fontname="helv",
         fontsize=fs,
@@ -528,16 +467,13 @@ def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float 
 
 
 def _write_wrapped(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 8.5) -> None:
-    """Cover leftover dots, then write longer merchant/address text."""
-    band = _expand_band(page, rect)
-    pad = _cover_band(page, band)
+    """Write longer merchant/address text on top of the original dotted line."""
     if not text:
         return
-    fs = _fit_fontsize(text, max(pad.width - 2, 20), max_size=fontsize)
-    band_h = pad.height
-    y_baseline = pad.y0 + (band_h + fs * 0.72) / 2
+    fs = _fit_fontsize(text, max(rect.width - 2, 20), max_size=fontsize)
+    y_baseline = rect.y0 + (rect.height + fs * 0.72) / 2
     page.insert_text(
-        fitz.Point(pad.x0 + 1, y_baseline),
+        fitz.Point(rect.x0 + 1, y_baseline),
         text[:140],
         fontname="helv",
         fontsize=fs,
