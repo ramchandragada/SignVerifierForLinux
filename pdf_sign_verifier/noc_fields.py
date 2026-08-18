@@ -32,6 +32,7 @@ FIELD_SIGNATURE = "Signature1"
 
 NAX_META_FLAG = "PDF-Sign-Verifier-NAX-FILLED"
 DOTTED_PLACEHOLDER_RE = re.compile(r"^[\s.….\-_]+$")
+DOT_CHARS = set(".·•∙⋅…⋯‥-_—–")
 
 
 def _clean(value: str | None) -> str:
@@ -354,17 +355,138 @@ def _union_rects(rects: list[fitz.Rect]) -> fitz.Rect | None:
     )
 
 
+def _is_dot_run(text: str) -> bool:
+    compact = "".join((text or "").split())
+    return len(compact) >= 2 and all(ch in DOT_CHARS for ch in compact)
+
+
+def _dotted_spans(page: fitz.Page) -> list[fitz.Rect]:
+    """Collect every placeholder-dot run (periods, ellipses, mixed)."""
+    rects: list[fitz.Rect] = []
+    try:
+        data = page.get_text("rawdict") or {}
+    except Exception:
+        data = {}
+    for block in data.get("blocks", []):
+        for line in block.get("lines", []) if isinstance(block, dict) else []:
+            for span in line.get("spans", []) if isinstance(line, dict) else []:
+                chars = span.get("chars") or []
+                run: list[tuple[float, float, float, float]] = []
+
+                def flush() -> None:
+                    nonlocal run
+                    if len(run) >= 2:
+                        rects.append(
+                            fitz.Rect(run[0][0], min(r[1] for r in run), run[-1][2], max(r[3] for r in run))
+                        )
+                    run = []
+
+                if chars:
+                    for ch in chars:
+                        c = ch.get("c") or ""
+                        bbox = ch.get("bbox")
+                        if c in DOT_CHARS and bbox:
+                            run.append(tuple(bbox))
+                        else:
+                            flush()
+                    flush()
+                elif _is_dot_run(span.get("text") or ""):
+                    bbox = span.get("bbox")
+                    if bbox:
+                        rects.append(fitz.Rect(bbox))
+
+    for needle in ("……", ".....", "....", "...", "…..", "………"):
+        try:
+            rects.extend(page.search_for(needle) or [])
+        except Exception:
+            pass
+    return rects
+
+
 def _dot_bands(page: fitz.Page) -> list[fitz.Rect]:
-    hits = page.search_for("……") or []
+    """Merge dotted placeholder spans into one full-width band per line."""
     groups: dict[int, list[fitz.Rect]] = {}
-    for rect in hits:
-        groups.setdefault(int(round(rect.y0)), []).append(rect)
+    for rect in _dotted_spans(page):
+        key = int(round((rect.y0 + rect.y1) / 2))
+        groups.setdefault(key, []).append(rect)
+    if not groups:
+        return []
+
+    keys = sorted(groups)
     bands: list[fitz.Rect] = []
-    for y in sorted(groups):
-        union = _union_rects(groups[y])
-        if union:
-            bands.append(union)
+    cur_key = keys[0]
+    cur = list(groups[cur_key])
+    for key in keys[1:]:
+        if key - cur_key <= 3:
+            cur.extend(groups[key])
+        else:
+            union = _union_rects(cur)
+            if union and union.width >= 8:
+                bands.append(union)
+            cur_key = key
+            cur = list(groups[key])
+    union = _union_rects(cur)
+    if union and union.width >= 8:
+        bands.append(union)
     return bands
+
+
+def _expand_band(page: fitz.Page, band: fitz.Rect) -> fitz.Rect:
+    """Grow a band across leftover dots, stopping before the next real word."""
+    extra = [band]
+    cy = (band.y0 + band.y1) / 2
+    for rect in _dotted_spans(page):
+        rcy = (rect.y0 + rect.y1) / 2
+        if abs(rcy - cy) <= 3.5 and rect.x0 >= band.x0 - 10:
+            extra.append(rect)
+    grown = _union_rects(extra) or band
+    next_word_x: float | None = None
+    try:
+        words = page.get_text("words") or []
+    except Exception:
+        words = []
+    for item in words:
+        wx0, wy0, wx1, wy1, word = item[:5]
+        if abs(((wy0 + wy1) / 2) - cy) > 4:
+            continue
+        if wx0 <= grown.x0 + 1:
+            continue
+        if _is_dot_run(str(word)):
+            grown.x1 = max(grown.x1, float(wx1))
+            continue
+        next_word_x = float(wx0) if next_word_x is None else min(next_word_x, float(wx0))
+    if next_word_x is not None:
+        grown.x1 = max(grown.x1, next_word_x - 1.0)
+    return grown
+
+
+def _cover_band(page: fitz.Page, rect: fitz.Rect) -> fitz.Rect:
+    """Paint out placeholder dots so leftover '........' cannot show through."""
+    pad = fitz.Rect(rect.x0 - 0.6, rect.y0 - 1.8, rect.x1 + 2.4, rect.y1 + 1.8)
+    page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
+    try:
+        cy = (rect.y0 + rect.y1) / 2
+        for drawing in page.get_drawings() or []:
+            drect = drawing.get("rect")
+            if drect is None:
+                continue
+            if drect.height > 8 or drect.width < 12:
+                continue
+            if abs((drect.y0 + drect.y1) / 2 - cy) > 3.5:
+                continue
+            if drect.x1 < rect.x0 - 16 or drect.x0 > rect.x1 + 16:
+                continue
+            page.draw_rect(
+                fitz.Rect(drect.x0 - 0.4, drect.y0 - 1.2, drect.x1 + 0.4, drect.y1 + 1.2),
+                color=(1, 1, 1),
+                fill=(1, 1, 1),
+                width=0,
+                overlay=True,
+            )
+            pad = _union_rects([pad, fitz.Rect(drect)]) or pad
+    except Exception:
+        pass
+    return pad
 
 
 def _split_two_lines(text: str, max_chars: int = 92) -> tuple[str, str]:
@@ -387,14 +509,13 @@ def _fit_fontsize(text: str, width: float, *, max_size: float = 9.0, min_size: f
 
 
 def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 9.0) -> None:
-    """Write text centered vertically within a dotted-line band."""
+    """Cover leftover dots, then write text centered in the placeholder band."""
+    band = _expand_band(page, rect)
+    pad = _cover_band(page, band)
     if not text:
         return
-    pad = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
-    page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
-    fs = _fit_fontsize(text, pad.width - 2, max_size=fontsize)
+    fs = _fit_fontsize(text, max(pad.width - 2, 20), max_size=fontsize)
     band_h = pad.height
-    # Vertically center: baseline = top + (band_h + ascent) / 2
     y_baseline = pad.y0 + (band_h + fs * 0.72) / 2
     page.insert_text(
         fitz.Point(pad.x0 + 1, y_baseline),
@@ -407,12 +528,12 @@ def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float 
 
 
 def _write_wrapped(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 8.5) -> None:
-    """Write longer text vertically centered in a wide dotted band."""
+    """Cover leftover dots, then write longer merchant/address text."""
+    band = _expand_band(page, rect)
+    pad = _cover_band(page, band)
     if not text:
         return
-    pad = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
-    page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
-    fs = _fit_fontsize(text, pad.width - 2, max_size=fontsize)
+    fs = _fit_fontsize(text, max(pad.width - 2, 20), max_size=fontsize)
     band_h = pad.height
     y_baseline = pad.y0 + (band_h + fs * 0.72) / 2
     page.insert_text(
