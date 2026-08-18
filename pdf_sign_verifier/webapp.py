@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+import json
+import subprocess
 import tempfile
+import urllib.request
 import webbrowser
 from pathlib import Path
 from threading import Timer
@@ -239,6 +242,21 @@ PAGE = r"""
       font-size: 0.9rem;
       color: var(--muted);
       text-align: center;
+    }
+    .update-card { margin-top: 1.2rem; }
+    .update-row {
+      display: flex;
+      gap: 0.7rem;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .update-status {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 0.45rem;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     #result { margin-top: 1.1rem; }
     #result:not(:empty) { animation: rise 0.45s cubic-bezier(.2,.8,.2,1) both; }
@@ -544,6 +562,17 @@ PAGE = r"""
       <pre id="irnOut" hidden style="margin-top:0.8rem"></pre>
     </details>
 
+    <section class="card update-card">
+      <div class="update-row">
+        <div>
+          <h2 style="margin:0">App update</h2>
+          <div class="meta" style="text-align:left;margin:0.35rem 0 0">Current version: {{ version }}</div>
+        </div>
+        <button type="button" class="secondary" id="updateBtn">Update to latest version</button>
+      </div>
+      <div id="updateStatus" class="update-status">Ready</div>
+    </section>
+
     <footer>PDF Sign Verifier {{ version }} · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
   </main>
 
@@ -559,6 +588,8 @@ PAGE = r"""
     const result = document.getElementById('result');
     const dropLabel = document.getElementById('dropLabel');
     const dropHint = document.getElementById('dropHint');
+    const updateBtn = document.getElementById('updateBtn');
+    const updateStatus = document.getElementById('updateStatus');
     let lastFile = null;
     let currentMode = '';  // 'verify' or 'blank' or 'bsa'
 
@@ -686,6 +717,34 @@ PAGE = r"""
         out.textContent = String(err.message || err);
       }
     });
+
+    updateBtn?.addEventListener('click', runAppUpdate);
+
+    async function runAppUpdate() {
+      if (!updateBtn || !updateStatus) return;
+      updateBtn.disabled = true;
+      const original = updateBtn.textContent;
+      updateBtn.textContent = 'Updating...';
+      updateStatus.textContent = 'Checking latest release and installing update...';
+      try {
+        const res = await fetch('/api/app-update', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Update failed');
+        const latest = data.latest_version ? `Latest: ${data.latest_version}` : 'Latest version checked.';
+        if (data.updated) {
+          updateStatus.textContent = `${data.message}\n${latest}\nPlease restart the app now.`;
+        } else if (data.requires_admin) {
+          updateStatus.textContent = `${data.message}\n\nRun this command in terminal:\n${data.command || ''}`;
+        } else {
+          updateStatus.textContent = `${data.message}\n${latest}`;
+        }
+      } catch (err) {
+        updateStatus.textContent = String(err.message || err);
+      } finally {
+        updateBtn.disabled = false;
+        updateBtn.textContent = original || 'Update to latest version';
+      }
+    }
 
     async function handleFiles(files) {
       clearBtn.hidden = false;
@@ -1126,6 +1185,55 @@ def _report_payload(report, upload_name: str, path: Path) -> dict:
     return data
 
 
+def _parse_version_tuple(text: str) -> tuple[int, ...]:
+    raw = (text or "").strip().lower().lstrip("v")
+    nums: list[int] = []
+    for part in raw.split("."):
+        if part.isdigit():
+            nums.append(int(part))
+        else:
+            break
+    return tuple(nums or [0])
+
+
+def _latest_deb_release() -> dict:
+    api = "https://api.github.com/repos/ramchandragada/SignVerifierForLinux/releases/latest"
+    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    assets = payload.get("assets") or []
+    for asset in assets:
+        name = str(asset.get("name") or "")
+        if name.endswith(".deb") and "amd64" in name:
+            return {
+                "tag": str(payload.get("tag_name") or ""),
+                "version": name.split("_")[1] if "_" in name else str(payload.get("tag_name") or ""),
+                "url": str(asset.get("browser_download_url") or ""),
+                "asset_name": name,
+            }
+    raise RuntimeError("No amd64 .deb asset found in latest release")
+
+
+def _manual_update_command() -> str:
+    return (
+        "bash -lc 'set -euo pipefail; "
+        "u=$(python3 - <<'\"'\"'PY'\"'\"'\n"
+        "import json, urllib.request\n"
+        "api=\"https://api.github.com/repos/ramchandragada/SignVerifierForLinux/releases/latest\"\n"
+        "data=json.load(urllib.request.urlopen(api))\n"
+        "for a in data.get(\"assets\", []):\n"
+        "    n=a.get(\"name\",\"\")\n"
+        "    if n.endswith(\".deb\") and \"amd64\" in n:\n"
+        "        print(a[\"browser_download_url\"]); break\n"
+        "else:\n"
+        "    raise SystemExit(\"No amd64 .deb in latest release yet\")\n"
+        "PY\n"
+        "); "
+        "curl -fL \"$u\" -o /tmp/pdf-sign-verifier-latest.deb; "
+        "sudo apt install -y /tmp/pdf-sign-verifier-latest.deb'"
+    )
+
+
 @app.get("/")
 def home():
     try:
@@ -1138,6 +1246,69 @@ def home():
     return render_template_string(
         PAGE, version=__version__, root_count=root_count, inter_count=inter_count
     )
+
+
+@app.post("/api/app-update")
+def api_app_update():
+    try:
+        latest = _latest_deb_release()
+    except Exception as exc:
+        return jsonify({"error": f"Could not check latest release: {exc}"}), 500
+
+    current = _parse_version_tuple(__version__)
+    latest_v = _parse_version_tuple(latest["version"])
+    if latest_v <= current:
+        return jsonify(
+            {
+                "updated": False,
+                "requires_admin": False,
+                "message": f"Already up to date ({__version__}).",
+                "latest_version": latest["version"],
+            }
+        )
+
+    with tempfile.TemporaryDirectory(prefix="pdfsig-update-") as tmp:
+        deb_path = Path(tmp) / latest["asset_name"]
+        try:
+            with urllib.request.urlopen(latest["url"], timeout=60) as resp:
+                deb_path.write_bytes(resp.read())
+        except Exception as exc:
+            return jsonify({"error": f"Download failed: {exc}"}), 500
+
+        proc = subprocess.run(
+            ["sudo", "-n", "apt", "install", "-y", str(deb_path)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if proc.returncode == 0:
+            return jsonify(
+                {
+                    "updated": True,
+                    "requires_admin": False,
+                    "message": f"Updated successfully to {latest['version']}.",
+                    "latest_version": latest["version"],
+                }
+            )
+
+        stderr = (proc.stderr or "").strip()
+        if "password is required" in stderr.lower() or "a password is required" in stderr.lower():
+            return jsonify(
+                {
+                    "updated": False,
+                    "requires_admin": True,
+                    "message": "Admin password is required on this system.",
+                    "command": _manual_update_command(),
+                    "latest_version": latest["version"],
+                }
+            )
+        return jsonify(
+            {
+                "error": "Automatic update failed.",
+                "details": stderr or (proc.stdout or "").strip(),
+                "command": _manual_update_command(),
+            }
+        ), 500
 
 
 def _verify_upload_to_json(upload) -> tuple[dict, int]:
