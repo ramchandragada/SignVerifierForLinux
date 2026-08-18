@@ -1,5 +1,5 @@
 ---
-description: Always commit and push to GitHub after builds or app changes
+description: Always publish to GitHub Releases so all users can auto-update
 alwaysApply: true
 ---
 
@@ -8,8 +8,17 @@ alwaysApply: true
 After **any** meaningful app change (tick/stamp visuals, packaging, verifier, UI, trust roots, CI), do this before ending the turn:
 
 1. Commit the relevant files on `main` (or the active feature branch).
-2. **`git push origin HEAD`** immediately — do not wait for the user to ask.
-3. Confirm the push (and that the release workflow will run if packaging/CI is affected).
+2. **Merge to `main` and `git push origin main`** immediately — do not wait for the user to ask.
+3. Confirm GitHub Actions `release-deb.yml` published a new **GitHub Release** `.deb` (this is what the in-app **Update** button installs).
+4. Tell the user the new version tag (e.g. 1.0.35) so employees can click **Check for update**.
+
+## Global deploy (required every time)
+
+The in-app updater always downloads **latest** from:
+
+`https://github.com/ramchandragada/SignVerifierForLinux/releases/latest`
+
+So a change is **not done** until it is on `main` and a new release asset exists. Feature-branch-only fixes never reach other PCs.
 
 ## Packaging / .deb builds
 
@@ -20,3 +29,4 @@ After **any** meaningful app change (tick/stamp visuals, packaging, verifier, UI
 
 - Never leave verified fixes only on the local machine.
 - Never treat “build finished locally” as done without a remote update when the change belongs in the product.
+- Never leave an app fix only on a PR branch if users need it via the Update button.
