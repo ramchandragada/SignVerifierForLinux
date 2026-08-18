@@ -761,7 +761,7 @@ PAGE = r"""
         : `<div class="fill-banner">${esc(noc.message || 'Enter details, then Fill & Verify.')}</div>`;
       const title = nax ? 'Amazon NAX blank NOC' : 'Amazon NOC merchant details';
       const hint = nax
-        ? 'Date · Branch · FC address · State · M/S · M/s. · Merchant address. State is written into every state blank on the letter.'
+        ? 'Date · Branch · State · M/S · M/s. · Merchant address. FC address is already pre-printed on the NOC. State is written into every state blank.'
         : 'Date · M/S · M/s. · Main place of business in Maharashtra. M/S and M/s. use the same seller name on Amazon’s form.';
       const fields = noc.fields || [];
       const inputs = fields.map((f, i) => {
@@ -798,7 +798,7 @@ PAGE = r"""
       if (!values.address) missing.push('Address');
       if (document.getElementById('noc_branch') && !values.branch) missing.push('Branch');
       if (document.getElementById('noc_state') && !values.state) missing.push('State');
-      if (document.getElementById('noc_fc_address') && !values.fc_address) missing.push('FC address');
+      // FC address removed — pre-printed on every NOC
       if (missing.length) {
         alert('Please fill: ' + missing.join(', '));
         return;

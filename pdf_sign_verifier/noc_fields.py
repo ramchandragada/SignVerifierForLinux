@@ -153,20 +153,19 @@ def _nax_saved_values(doc: fitz.Document) -> dict[str, str]:
 
 
 def _nax_fields_from_values(values: dict[str, str]) -> list[NocFieldSnapshot]:
+    # FC address is NOT a user field — each NOC already has it pre-printed.
     specs = [
-        ("date", "Date", False),
-        ("branch", "Tax Officer Branch", False),
-        ("fc_address", "Amazon FC / premises address", True),
-        ("state", "State", False),
-        ("ms_name", "M/S (Merchant name)", False),
-        ("ms_name_2", "M/s. (Merchant name)", False),
-        ("address", "Main place of business (address line 1)", True),
-        ("address_line2", "Address line 2 (optional)", False),
+        ("date", "Date", False, True),
+        ("branch", "Tax Officer Branch", False, True),
+        ("state", "State", False, True),
+        ("ms_name", "M/S (Merchant name)", False, True),
+        ("ms_name_2", "M/s. (Merchant name)", False, True),
+        ("address", "Merchant place of business (address)", True, True),
+        ("address_line2", "Address line 2 (optional)", False, False),
     ]
     fields: list[NocFieldSnapshot] = []
-    for name, label, multiline in specs:
+    for name, label, multiline, required in specs:
         val = _clean(values.get(name, ""))
-        required = name != "address_line2"
         if name == "ms_name_2" and not val:
             val = _clean(values.get("ms_name", ""))
         fields.append(
@@ -198,7 +197,7 @@ def _inspect_nax(doc: fitz.Document) -> NocFormStatus | None:
         )
     else:
         msg = (
-            "Amazon NAX blank NOC detected. Enter Date, Branch, FC address, State, "
+            "Amazon NAX blank NOC detected. Enter Date, Branch, State, "
             "M/S, M/s., and merchant address, then Fill & Verify."
         )
     return NocFormStatus(
@@ -380,23 +379,25 @@ def _split_two_lines(text: str, max_chars: int = 92) -> tuple[str, str]:
     return text[:cut].strip(" ,"), text[cut:].strip(" ,")
 
 
-def _fit_fontsize(text: str, width: float, *, max_size: float = 9.0, min_size: float = 6.5) -> float:
-    """Pick a font size that fits approximate band width (helv)."""
+def _fit_fontsize(text: str, width: float, *, max_size: float = 9.0, min_size: float = 6.0) -> float:
+    """Pick a font size that fits approximate band width (Helvetica ~0.5x)."""
     n = max(len(text), 1)
-    size = min(max_size, max(min_size, width / (n * 0.48)))
+    size = min(max_size, max(min_size, width / (n * 0.50)))
     return round(size, 1)
 
 
-def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 8.0) -> None:
+def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 9.0) -> None:
+    """Write text centered vertically within a dotted-line band."""
     if not text:
         return
-    pad = fitz.Rect(rect.x0 - 1, rect.y0 - 1.2, rect.x1 + 2, rect.y1 + 1.2)
+    pad = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
     page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
-    fs = _fit_fontsize(text, pad.width, max_size=fontsize)
-    # insert_textbox often fails on narrow dotted bands — prefer insert_text.
-    y = pad.y0 + fs * 0.85
+    fs = _fit_fontsize(text, pad.width - 2, max_size=fontsize)
+    band_h = pad.height
+    # Vertically center: baseline = top + (band_h + ascent) / 2
+    y_baseline = pad.y0 + (band_h + fs * 0.72) / 2
     page.insert_text(
-        fitz.Point(pad.x0 + 1, y),
+        fitz.Point(pad.x0 + 1, y_baseline),
         text,
         fontname="helv",
         fontsize=fs,
@@ -405,31 +406,23 @@ def _write_line(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float 
     )
 
 
-def _write_wrapped(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 7.8) -> None:
-    """Write longer text into a wide band using textbox with smaller font."""
+def _write_wrapped(page: fitz.Page, rect: fitz.Rect, text: str, *, fontsize: float = 8.5) -> None:
+    """Write longer text vertically centered in a wide dotted band."""
     if not text:
         return
-    pad = fitz.Rect(rect.x0 - 1, rect.y0 - 1.2, rect.x1 + 2, rect.y1 + 1.2)
+    pad = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
     page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
-    fs = min(fontsize, _fit_fontsize(text, pad.width, max_size=fontsize))
-    rc = page.insert_textbox(
-        pad,
-        text,
+    fs = _fit_fontsize(text, pad.width - 2, max_size=fontsize)
+    band_h = pad.height
+    y_baseline = pad.y0 + (band_h + fs * 0.72) / 2
+    page.insert_text(
+        fitz.Point(pad.x0 + 1, y_baseline),
+        text[:140],
         fontname="helv",
         fontsize=fs,
         color=(0, 0, 0),
-        align=fitz.TEXT_ALIGN_LEFT,
         overlay=True,
     )
-    if rc < 0:
-        page.insert_text(
-            fitz.Point(pad.x0 + 1, pad.y0 + fs * 0.9),
-            text[:120],
-            fontname="helv",
-            fontsize=fs,
-            color=(0, 0, 0),
-            overlay=True,
-        )
 
 
 def _fill_nax_overlay(
@@ -439,7 +432,6 @@ def _fill_nax_overlay(
 ) -> NocFormStatus:
     date_v = _clean(values.get("date"))
     branch = _clean(values.get("branch"))
-    fc_address = _clean(values.get("fc_address"))
     state = _clean(values.get("state"))
     name1 = _clean(values.get("ms_name"))
     name2 = _clean(values.get("ms_name_2")) or name1
@@ -451,8 +443,6 @@ def _fill_nax_overlay(
         missing.append("Date")
     if not branch:
         missing.append("Branch")
-    if not fc_address:
-        missing.append("FC / premises address")
     if not state:
         missing.append("State")
     if not name1:
@@ -468,7 +458,6 @@ def _fill_nax_overlay(
     stored = {
         "date": date_v,
         "branch": branch,
-        "fc_address": fc_address,
         "state": state,
         "ms_name": name1,
         "ms_name_2": name2,
@@ -496,8 +485,7 @@ def _fill_nax_overlay(
 
         date_r = band_near(85)
         branch_r = band_near(110)
-        fc1_r = band_near(189)
-        fc2_r = band_near(211)
+        # bands 2+3 (y~189, y~211) = FC premises address — pre-printed, skip
         state_prem_r = band_near(232)
         ms_r = band_near(268)
         state_fc_r = band_near(305)
@@ -507,35 +495,30 @@ def _fill_nax_overlay(
         addr2_r = band_near(417)
         state_conf_r = band_near(614)
 
-        fc_l1, fc_l2 = _split_two_lines(fc_address)
         merch_l1, merch_l2 = addr1, addr2
         if not merch_l2:
             merch_l1, merch_l2 = _split_two_lines(addr1)
 
         if date_r:
-            _write_line(page, date_r, date_v, fontsize=8.0)
+            _write_line(page, date_r, date_v)
         if branch_r:
-            _write_line(page, branch_r, branch, fontsize=8.0)
-        if fc1_r:
-            _write_wrapped(page, fc1_r, fc_l1)
-        if fc2_r:
-            _write_wrapped(page, fc2_r, fc_l2 or "")
+            _write_line(page, branch_r, branch)
         if state_prem_r:
-            _write_line(page, state_prem_r, state, fontsize=8.0)
+            _write_line(page, state_prem_r, state)
         if ms_r:
             _write_wrapped(page, ms_r, name1)
         if state_fc_r:
-            _write_line(page, state_fc_r, state, fontsize=8.0)
+            _write_line(page, state_fc_r, state)
         if ms2_r:
             _write_wrapped(page, ms2_r, name2)
         if state_biz_r:
-            _write_line(page, state_biz_r, state, fontsize=8.0)
+            _write_line(page, state_biz_r, state)
         if addr1_r:
             _write_wrapped(page, addr1_r, merch_l1)
         if addr2_r:
             _write_wrapped(page, addr2_r, merch_l2)
         if state_conf_r:
-            _write_line(page, state_conf_r, state, fontsize=8.0)
+            _write_line(page, state_conf_r, state)
 
         meta = dict(doc.metadata or {})
         meta["keywords"] = NAX_META_FLAG
