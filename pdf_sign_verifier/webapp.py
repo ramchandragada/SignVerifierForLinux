@@ -837,6 +837,8 @@ PAGE = r"""
       if (locked) {
         if (data.cryptographically_verified) {
           banner = `<div class="locked-banner">Details already filled — fields locked. Signature verified below.</div>`;
+                    } else if (data.source_overall === 'UNSIGNED') {
+                      banner = `<div class="fill-banner">Details already filled — fields locked. Source blank PDF is UNSIGNED, so it cannot be cryptographically verified after filling.</div>`;
         } else if (data.overall === 'UNSIGNED') {
           banner = `<div class="fill-banner">Details already filled — fields locked. This file currently has no digital signature (UNSIGNED).</div>`;
         } else {
@@ -927,6 +929,9 @@ PAGE = r"""
           URL.revokeObjectURL(url);
         }
         renderAll(data);
+        if (data.overall === 'UNSIGNED' && data.source_overall === 'UNSIGNED') {
+          alert('Filled successfully, but the source blank PDF has no digital signature. Use the original Amazon-signed blank PDF for cryptographic verification.');
+        }
       } catch (err) {
         alert(err.message);
         if (btn) { btn.disabled = false; btn.textContent = 'Fill & Verify signature'; }
@@ -1232,6 +1237,7 @@ def api_fill_and_verify():
         upload.save(source)
         filled_name = f"{Path(upload.filename).stem}_filled.pdf"
         filled = Path(tmp) / filled_name
+        source_report = verify_pdf(source)
         try:
             fill_noc_form(
                 source,
@@ -1252,6 +1258,9 @@ def api_fill_and_verify():
 
         report = verify_pdf(filled)
         data = _report_payload(report, filled_name, filled)
+        source_data = _report_payload(source_report, Path(upload.filename).name, source)
+        data["source_overall"] = source_data.get("overall")
+        data["source_cryptographically_verified"] = source_data.get("cryptographically_verified", False)
         data["filled_file_name"] = filled_name
         data["filled_pdf_base64"] = base64.b64encode(filled.read_bytes()).decode("ascii")
         data["awaiting_fill"] = False
