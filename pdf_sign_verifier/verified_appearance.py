@@ -103,8 +103,8 @@ def _check_polygon(cx: float, cy: float, scale: float) -> list[tuple[float, floa
     p0 = (cx + scale * (-0.30), cy + scale * (-0.47))  # short tip
     p1 = (cx, cy)  # outer vertex
     p2 = (cx + scale * 0.50, cy + scale * (-0.98))  # long tip (top)
-    # Match required Adobe reference — deliberately slim arms
-    half = scale * 0.025
+    # Thicker arms to match the requested bold Acrobat-like tick style.
+    half = scale * 0.048
 
     def dir_vec(a, b):
         dx, dy = b[0] - a[0], b[1] - a[1]
