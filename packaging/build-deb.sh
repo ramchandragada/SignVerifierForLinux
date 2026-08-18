@@ -103,6 +103,7 @@ pyinstaller \
   --hidden-import pdf_sign_verifier.irn_qr \
   --add-data "${ROOT}/trust:trust" \
   --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
+  --add-data "${ROOT}/pdf_sign_verifier/static:static" \
   "${ROOT}/main.py"
 
 # Install frozen tree under /opt
