@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import urllib.request
@@ -728,15 +730,21 @@ PAGE = r"""
       updateStatus.textContent = 'Checking latest release and installing update...';
       try {
         const res = await fetch('/api/app-update', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Update failed');
-        const latest = data.latest_version ? `Latest: ${data.latest_version}` : 'Latest version checked.';
+        const data = await res.json().catch(() => ({}));
+        const latest = data.latest_version ? `Latest: ${data.latest_version}` : '';
         if (data.updated) {
-          updateStatus.textContent = `${data.message}\n${latest}\nPlease restart the app now.`;
-        } else if (data.requires_admin) {
-          updateStatus.textContent = `${data.message}\n\nRun this command in terminal:\n${data.command || ''}`;
-        } else {
-          updateStatus.textContent = `${data.message}\n${latest}`;
+          updateStatus.textContent = [data.message, latest, 'Please close this window and start the app again.'].filter(Boolean).join('\n');
+          return;
+        }
+        const parts = [
+          data.message || data.error || (res.ok ? 'Update check finished.' : 'Update failed'),
+          latest,
+          data.details,
+          data.command ? ('If a password window did not appear, run this in terminal:\n' + data.command) : '',
+        ].filter(Boolean);
+        updateStatus.textContent = parts.join('\n\n');
+        if (!res.ok && !data.message && !data.command) {
+          throw new Error(data.error || 'Update failed');
         }
       } catch (err) {
         updateStatus.textContent = String(err.message || err);
@@ -1198,7 +1206,13 @@ def _parse_version_tuple(text: str) -> tuple[int, ...]:
 
 def _latest_deb_release() -> dict:
     api = "https://api.github.com/repos/ramchandragada/SignVerifierForLinux/releases/latest"
-    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json"})
+    req = urllib.request.Request(
+        api,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "pdf-sign-verifier",
+        },
+    )
     with urllib.request.urlopen(req, timeout=20) as resp:
         payload = json.loads(resp.read().decode("utf-8", errors="replace"))
     assets = payload.get("assets") or []
@@ -1214,24 +1228,47 @@ def _latest_deb_release() -> dict:
     raise RuntimeError("No amd64 .deb asset found in latest release")
 
 
-def _manual_update_command() -> str:
-    return (
-        "bash -lc 'set -euo pipefail; "
-        "u=$(python3 - <<'\"'\"'PY'\"'\"'\n"
-        "import json, urllib.request\n"
-        "api=\"https://api.github.com/repos/ramchandragada/SignVerifierForLinux/releases/latest\"\n"
-        "data=json.load(urllib.request.urlopen(api))\n"
-        "for a in data.get(\"assets\", []):\n"
-        "    n=a.get(\"name\",\"\")\n"
-        "    if n.endswith(\".deb\") and \"amd64\" in n:\n"
-        "        print(a[\"browser_download_url\"]); break\n"
-        "else:\n"
-        "    raise SystemExit(\"No amd64 .deb in latest release yet\")\n"
-        "PY\n"
-        "); "
-        "curl -fL \"$u\" -o /tmp/pdf-sign-verifier-latest.deb; "
-        "sudo apt install -y /tmp/pdf-sign-verifier-latest.deb'"
+UPDATE_DEB_PATH = Path("/var/tmp/pdf-sign-verifier-latest.deb")
+
+
+def _manual_update_command(deb_path: Path | None = None) -> str:
+    path = deb_path or UPDATE_DEB_PATH
+    return f"sudo apt install -y {path}"
+
+
+def _sudo_auth_required(output: str) -> bool:
+    text = (output or "").lower()
+    needles = (
+        "password is required",
+        "a password is required",
+        "a terminal is required",
+        "no tty",
+        "authentication",
+        "not in the sudoers",
+        "permission denied",
+        "polkit",
+        "not authorized",
+        "dismissed",
+        "cancelled",
+        "canceled",
     )
+    return any(n in text for n in needles)
+
+
+def _run_install(deb_path: Path) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    apt_get = shutil.which("apt-get") or "/usr/bin/apt-get"
+    attempts: list[list[str]] = [["sudo", "-n", apt_get, "install", "-y", str(deb_path)]]
+    pkexec = shutil.which("pkexec")
+    if pkexec:
+        attempts.append([pkexec, apt_get, "install", "-y", str(deb_path)])
+    last = subprocess.CompletedProcess(attempts[0], 1, "", "install not attempted")
+    for cmd in attempts:
+        last = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+        if last.returncode == 0:
+            return last
+    return last
 
 
 @app.get("/")
@@ -1267,48 +1304,59 @@ def api_app_update():
             }
         )
 
-    with tempfile.TemporaryDirectory(prefix="pdfsig-update-") as tmp:
-        deb_path = Path(tmp) / latest["asset_name"]
-        try:
-            with urllib.request.urlopen(latest["url"], timeout=60) as resp:
-                deb_path.write_bytes(resp.read())
-        except Exception as exc:
-            return jsonify({"error": f"Download failed: {exc}"}), 500
+    req = urllib.request.Request(
+        latest["url"],
+        headers={"User-Agent": "pdf-sign-verifier"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            UPDATE_DEB_PATH.write_bytes(resp.read())
+        UPDATE_DEB_PATH.chmod(0o644)
+    except Exception as exc:
+        return jsonify({"error": f"Download failed: {exc}"}), 500
 
-        proc = subprocess.run(
-            ["sudo", "-n", "apt", "install", "-y", str(deb_path)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-        if proc.returncode == 0:
-            return jsonify(
-                {
-                    "updated": True,
-                    "requires_admin": False,
-                    "message": f"Updated successfully to {latest['version']}.",
-                    "latest_version": latest["version"],
-                }
-            )
-
-        stderr = (proc.stderr or "").strip()
-        if "password is required" in stderr.lower() or "a password is required" in stderr.lower():
-            return jsonify(
-                {
-                    "updated": False,
-                    "requires_admin": True,
-                    "message": "Admin password is required on this system.",
-                    "command": _manual_update_command(),
-                    "latest_version": latest["version"],
-                }
-            )
+    try:
+        proc = _run_install(UPDATE_DEB_PATH)
+    except Exception as exc:
         return jsonify(
             {
+                "updated": False,
+                "requires_admin": True,
                 "error": "Automatic update failed.",
-                "details": stderr or (proc.stdout or "").strip(),
+                "message": f"Could not start installer: {exc}",
                 "command": _manual_update_command(),
+                "latest_version": latest["version"],
             }
-        ), 500
+        ), 200
+
+    if proc.returncode == 0:
+        return jsonify(
+            {
+                "updated": True,
+                "requires_admin": False,
+                "message": f"Updated successfully to {latest['version']}.",
+                "latest_version": latest["version"],
+            }
+        )
+
+    combined = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
+    if _sudo_auth_required(combined):
+        message = (
+            "A password window should appear so the update can install. "
+            "If it did not, the package is already downloaded — run the command below."
+        )
+    else:
+        message = "Automatic update needs your admin password to finish installing."
+    return jsonify(
+        {
+            "updated": False,
+            "requires_admin": True,
+            "message": message,
+            "details": combined[:1200],
+            "command": _manual_update_command(),
+            "latest_version": latest["version"],
+        }
+    )
 
 
 def _verify_upload_to_json(upload) -> tuple[dict, int]:
