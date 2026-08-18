@@ -6,10 +6,11 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.request
 import webbrowser
 from pathlib import Path
-from threading import Timer
 
 from flask import Flask, Response, jsonify, render_template_string, request, send_from_directory
 
@@ -34,7 +35,7 @@ PAGE = r"""
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PDF Sign Verifier · Indian DSC on Linux</title>
+  <title>PDF Sign Verifier</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -65,54 +66,76 @@ PAGE = r"""
       --radius: 18px;
     }
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
+    html, body {
+      height: 100%;
       margin: 0;
-      min-height: 100vh;
+    }
+    body {
       font-family: "Sora", "Ubuntu", "Segoe UI", sans-serif;
       color: var(--ink);
-      background:
-        radial-gradient(900px 420px at 8% -8%, #cfe8dc 0%, transparent 55%),
-        radial-gradient(800px 380px at 100% 0%, #f3e7c8 0%, transparent 48%),
-        radial-gradient(700px 360px at 50% 110%, #d7ebe3 0%, transparent 45%),
-        linear-gradient(165deg, #edf5f0 0%, #e8f0eb 42%, #f4f1e8 100%);
-      background-attachment: fixed;
+      background: #e8eee9;
+      overflow: hidden;
     }
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0.35;
-      background-image:
-        linear-gradient(rgba(15, 107, 86, 0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(15, 107, 86, 0.045) 1px, transparent 1px);
-      background-size: 28px 28px;
-      mask-image: radial-gradient(ellipse 80% 70% at 50% 20%, #000 30%, transparent 85%);
+    .app-shell {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #e8eee9;
+    }
+    .titlebar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.55rem 0.9rem;
+      background: #081a36;
+      color: #fff;
+      -webkit-app-region: drag;
+    }
+    .titlebar-text {
+      min-width: 0;
+      flex: 1;
+    }
+    .titlebar-text strong {
+      display: block;
+      font-size: 0.98rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    .titlebar-text span {
+      display: block;
+      margin-top: 0.08rem;
+      color: #b7c3d6;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .titlebar-ver {
+      font-size: 0.78rem;
+      color: #cfd7e6;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 0.22rem 0.6rem;
+      -webkit-app-region: no-drag;
+    }
+    .aspera-logo {
+      height: 36px;
+      width: auto;
+      display: block;
+      border-radius: 8px;
+      -webkit-app-region: no-drag;
+    }
+    .app-body {
+      flex: 1 1 auto;
+      overflow: auto;
+      padding: 1rem 1.1rem 1.1rem;
     }
     main {
       position: relative;
-      width: min(920px, calc(100% - 2rem));
+      width: min(980px, 100%);
       margin: 0 auto;
-      padding: 2.4rem 0 3.2rem;
-    }
-    .hero {
-      animation: rise 0.7s cubic-bezier(.2,.8,.2,1) both;
-      margin-bottom: 1.4rem;
-    }
-    .hero-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-bottom: 0.85rem;
-    }
-    .aspera-logo {
-      height: 44px;
-      width: auto;
-      display: block;
-      border-radius: 10px;
-      box-shadow: 0 10px 22px rgba(8, 26, 54, 0.28);
+      padding: 0;
     }
     .update-dialog {
       border: 1px solid var(--line);
@@ -122,10 +145,10 @@ PAGE = r"""
       box-shadow: var(--shadow);
     }
     .update-dialog::backdrop { background: rgba(16, 36, 31, 0.35); }
-    .update-dialog h3 { margin: 0 0 0.45rem; font-family: "Fraunces", Georgia, serif; }
+    .update-dialog h3 { margin: 0 0 0.45rem; font-family: "Sora", sans-serif; }
     .update-dialog p { margin: 0 0 1rem; color: var(--muted); line-height: 1.5; }
     .brand-mark {
-      display: inline-flex;
+      display: none;
       align-items: center;
       gap: 0.55rem;
       color: var(--accent-deep);
@@ -148,31 +171,7 @@ PAGE = r"""
       box-shadow: 0 6px 16px rgba(15, 107, 86, 0.28);
       animation: pulse-seal 2.8s ease-in-out infinite;
     }
-    h1 {
-      font-family: "Fraunces", "Liberation Serif", Georgia, serif;
-      font-weight: 700;
-      font-size: clamp(2.35rem, 6vw, 3.55rem);
-      line-height: 1.05;
-      margin: 0 0 0.7rem;
-      letter-spacing: -0.03em;
-      color: var(--ink);
-      max-width: 14ch;
-    }
-    h1 span {
-      display: inline;
-      background: linear-gradient(120deg, var(--accent-deep) 0%, var(--accent) 55%, #1a7a5f 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
-    .tagline {
-      color: var(--muted);
-      margin: 0;
-      max-width: 40rem;
-      font-size: 1.02rem;
-      line-height: 1.55;
-    }
-    .tagline strong { color: var(--accent-deep); font-weight: 600; }
+    h1, .tagline, .hero { display: none; }
     .drop {
       position: relative;
       margin-top: 1.6rem;
@@ -397,11 +396,15 @@ PAGE = r"""
       overflow: auto;
       font-size: 0.82rem;
     }
-    footer {
-      margin-top: 1.8rem;
+    footer, .statusbar {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 0.42rem 1rem;
       color: var(--muted);
-      font-size: 0.85rem;
-      text-align: center;
+      font-size: 0.78rem;
+      text-align: left;
+      background: #f3f6f4;
+      border-top: 1px solid var(--line);
     }
     .noc-form h2 {
       margin: 0 0 0.35rem;
@@ -476,36 +479,37 @@ PAGE = r"""
     }
     .mode-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1rem;
-      margin-top: 1.2rem;
-      animation: rise 0.7s cubic-bezier(.2,.8,.2,1) 0.1s both;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+      margin-top: 0;
     }
     .mode-card {
       background: var(--panel-solid);
-      border: 1.5px solid var(--line);
-      border-radius: var(--radius);
-      padding: 1.4rem 1.3rem;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 1rem 0.95rem 1.05rem;
       cursor: pointer;
-      transition: border-color .2s, transform .2s, box-shadow .2s;
+      transition: border-color .15s, box-shadow .15s;
       text-align: left;
     }
     .mode-card:hover {
       border-color: var(--accent);
-      transform: translateY(-3px);
-      box-shadow: 0 16px 40px rgba(15,107,86,0.12);
+      box-shadow: 0 8px 22px rgba(15,107,86,0.10);
     }
     .mode-card h2 {
-      font-family: "Fraunces", Georgia, serif;
-      font-size: 1.18rem;
-      margin: 0.8rem 0 0.4rem;
+      font-family: "Sora", sans-serif;
+      font-size: 1rem;
+      margin: 0.65rem 0 0.3rem;
     }
-    .mode-card p { color: var(--muted); margin: 0; font-size: 0.92rem; line-height: 1.5; }
+    .mode-card p { color: var(--muted); margin: 0; font-size: 0.84rem; line-height: 1.45; }
     .mode-card p strong { color: var(--ink); }
     .mode-icon {
-      width: 52px; height: 52px;
-      border-radius: 14px;
+      width: 40px; height: 40px;
+      border-radius: 11px;
       display: grid; place-items: center;
+    }
+    @media (max-width: 800px) {
+      .mode-grid { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -516,16 +520,17 @@ PAGE = r"""
   </style>
 </head>
 <body>
-  <main>
-    <header class="hero">
-      <div class="hero-top">
-        <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Indian DSC · CCA trust · Linux</div>
-        <img class="aspera-logo" src="/brand/aspera-logo.svg" alt="Aspera" />
+  <div class="app-shell">
+    <header class="titlebar">
+      <img class="aspera-logo" src="/brand/aspera-logo.svg" alt="Aspera" />
+      <div class="titlebar-text">
+        <strong>PDF Sign Verifier</strong>
+        <span>Indian DSC · CCA trust · Linux</span>
       </div>
-      <h1>PDF Sign <span>Verifier</span></h1>
-      <p class="tagline">Verify Indian DSC-signed PDFs on Linux — no Windows, no Adobe.</p>
+      <div class="titlebar-ver">{{ version }}</div>
     </header>
-
+    <div class="app-body">
+  <main>
     <div id="modeSelect" class="mode-grid">
       <div class="mode-card" id="modeVerify">
         <div class="mode-icon" style="background:var(--valid-bg);color:var(--valid)">
@@ -600,6 +605,7 @@ PAGE = r"""
       </div>
       <div id="updateStatus" class="update-status">Ready</div>
     </section>
+    </main>
 
     <dialog class="update-dialog" id="updateDialog">
       <h3>Install update?</h3>
@@ -609,9 +615,9 @@ PAGE = r"""
         <button type="button" class="success" id="updateInstallBtn">Install update</button>
       </div>
     </dialog>
-
-    <footer>PDF Sign Verifier {{ version }} · Aspera · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
-  </main>
+    </div>
+    <footer class="statusbar">PDF Sign Verifier {{ version }} · Aspera · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
+  </div>
 
   <script>
     const modeSelect = document.getElementById('modeSelect');
@@ -1695,15 +1701,94 @@ def _pick_port(host: str, preferred: int, attempts: int = 20) -> int:
     )
 
 
+def _wait_for_server(url: str, timeout: float = 10.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=0.4)
+            return
+        except Exception:
+            time.sleep(0.12)
+
+
+def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
+    profile = Path.home() / ".cache" / "pdf-sign-verifier-app"
+    profile.mkdir(parents=True, exist_ok=True)
+    binaries = (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "brave-browser",
+    )
+    for name in binaries:
+        path = shutil.which(name)
+        if not path:
+            continue
+        return subprocess.Popen(
+            [
+                path,
+                f"--app={url}",
+                f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--class=PDFSignVerifier",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    return None
+
+
+def _open_webview(url: str) -> bool:
+    try:
+        import webview
+    except Exception:
+        return False
+    try:
+        webview.create_window(
+            "PDF Sign Verifier",
+            url,
+            width=1100,
+            height=780,
+            min_size=(880, 620),
+        )
+        webview.start()
+        return True
+    except Exception:
+        return False
+
+
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
     chosen = _pick_port(host, port)
     url = f"http://{host}:{chosen}/"
-    if open_browser:
-        Timer(0.8, lambda: webbrowser.open(url)).start()
     print(f"PDF Sign Verifier {__version__}")
     if chosen != port:
         print(f"Port {port} is busy — using {chosen} instead.")
-    print(f"Open {url}  (Ctrl+C to stop)")
-    print("Verify Indian DSC PDFs · Batch folder · Amazon NOC fill · optional IRN helper")
-    print("API: POST /api/v1/verify  |  /api/v1/batch-verify  |  /api/v1/irn-inspect")
-    app.run(host=host, port=chosen, debug=False, use_reloader=False)
+    print(f"App window: {url}")
+
+    if not open_browser:
+        app.run(host=host, port=chosen, debug=False, use_reloader=False)
+        return
+
+    server = threading.Thread(
+        target=lambda: app.run(host=host, port=chosen, debug=False, use_reloader=False),
+        daemon=True,
+    )
+    server.start()
+    _wait_for_server(url)
+    if _open_webview(url):
+        return
+    chrome = _open_chrome_app_window(url)
+    if chrome is not None:
+        chrome.wait()
+        return
+    webbrowser.open(url)
+    try:
+        while server.is_alive():
+            time.sleep(0.4)
+    except KeyboardInterrupt:
+        return
