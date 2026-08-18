@@ -41,11 +41,11 @@ PAGE = r"""
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --ink: #10241f;
-      --muted: #5a6d66;
-      --line: #d5e0da;
-      --bg: #e7f0eb;
-      --panel: rgba(255, 255, 255, 0.82);
+      --ink: #0c1628;
+      --muted: #5b6a80;
+      --line: #d7e0ea;
+      --bg: #eef3f8;
+      --panel: rgba(255, 255, 255, 0.86);
       --panel-solid: #ffffff;
       --accent: #0f6b56;
       --accent-deep: #0a4a3c;
@@ -62,7 +62,9 @@ PAGE = r"""
       --invalid-bg: #fdecea;
       --unsigned: #5b6777;
       --unsigned-bg: #eef1f5;
-      --shadow: 0 18px 50px rgba(16, 36, 31, 0.08);
+      --navy: #071529;
+      --navy-2: #0d2348;
+      --shadow: 0 18px 50px rgba(7, 21, 41, 0.08);
       --radius: 18px;
     }
     * { box-sizing: border-box; }
@@ -73,23 +75,27 @@ PAGE = r"""
     body {
       font-family: "Sora", "Ubuntu", "Segoe UI", sans-serif;
       color: var(--ink);
-      background: #e8eee9;
+      background: #dfe8f1;
       overflow: hidden;
     }
     .app-shell {
       height: 100vh;
       display: flex;
       flex-direction: column;
-      background: #e8eee9;
+      background:
+        radial-gradient(900px 420px at 8% -10%, rgba(59,110,214,0.18), transparent 55%),
+        radial-gradient(700px 380px at 100% 0%, rgba(15,107,86,0.12), transparent 46%),
+        linear-gradient(180deg, #e8eef6 0%, #eef3f8 42%, #e7eee9 100%);
     }
     .titlebar {
       flex: 0 0 auto;
       display: flex;
       align-items: center;
-      gap: 0.85rem;
-      padding: 0.55rem 0.9rem;
-      background: #081a36;
+      gap: 1rem;
+      padding: 0.78rem 1.15rem;
+      background: linear-gradient(90deg, #06101f 0%, #0a1c38 55%, #0b2748 100%);
       color: #fff;
+      border-bottom: 1px solid rgba(183,182,244,0.16);
       -webkit-app-region: drag;
     }
     .titlebar-text {
@@ -98,44 +104,46 @@ PAGE = r"""
     }
     .titlebar-text strong {
       display: block;
-      font-size: 0.98rem;
-      font-weight: 650;
-      letter-spacing: -0.02em;
+      font-size: 1.08rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
     }
     .titlebar-text span {
       display: block;
-      margin-top: 0.08rem;
-      color: #b7c3d6;
+      margin-top: 0.12rem;
+      color: #9eb0cc;
       font-size: 0.72rem;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .titlebar-ver {
       font-size: 0.78rem;
-      color: #cfd7e6;
+      color: #d7e3f5;
       background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.14);
       border-radius: 999px;
-      padding: 0.22rem 0.6rem;
+      padding: 0.28rem 0.7rem;
       -webkit-app-region: no-drag;
     }
     .aspera-logo {
-      height: 28px;
+      height: 42px;
       width: auto;
-      max-width: 168px;
+      max-width: 230px;
       object-fit: contain;
       display: block;
-      border-radius: 4px;
+      border-radius: 8px;
+      background: #081a36;
+      box-shadow: 0 0 0 1px rgba(183,182,244,0.22);
       -webkit-app-region: no-drag;
     }
     .app-body {
       flex: 1 1 auto;
       overflow: auto;
-      padding: 1rem 1.1rem 1.1rem;
+      padding: 1.15rem 1.2rem 1.3rem;
     }
     main {
       position: relative;
-      width: min(980px, 100%);
+      width: min(1120px, 100%);
       margin: 0 auto;
       padding: 0;
     }
@@ -482,36 +490,122 @@ PAGE = r"""
     .mode-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.75rem;
+      gap: 0.9rem;
       margin-top: 0;
     }
     .mode-card {
       background: var(--panel-solid);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 1rem 0.95rem 1.05rem;
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 18px;
+      padding: 1.15rem 1.1rem 1.2rem;
       cursor: pointer;
-      transition: border-color .15s, box-shadow .15s;
+      transition: border-color .18s, box-shadow .18s, transform .18s;
       text-align: left;
+      min-height: 210px;
+      box-shadow: 0 10px 28px rgba(7,21,41,0.05);
     }
     .mode-card:hover {
-      border-color: var(--accent);
-      box-shadow: 0 8px 22px rgba(15,107,86,0.10);
+      border-color: rgba(15,107,86,0.45);
+      transform: translateY(-3px);
+      box-shadow: 0 18px 40px rgba(7,21,41,0.12);
     }
     .mode-card h2 {
       font-family: "Sora", sans-serif;
-      font-size: 1rem;
-      margin: 0.65rem 0 0.3rem;
+      font-size: 1.05rem;
+      margin: 0.75rem 0 0.4rem;
     }
-    .mode-card p { color: var(--muted); margin: 0; font-size: 0.84rem; line-height: 1.45; }
+    .mode-card p { color: var(--muted); margin: 0; font-size: 0.86rem; line-height: 1.5; }
     .mode-card p strong { color: var(--ink); }
     .mode-icon {
-      width: 40px; height: 40px;
-      border-radius: 11px;
+      width: 46px; height: 46px;
+      border-radius: 13px;
       display: grid; place-items: center;
     }
-    @media (max-width: 800px) {
-      .mode-grid { grid-template-columns: 1fr; }
+    .welcome {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+    .welcome h2 {
+      margin: 0 0 0.28rem;
+      font-size: 1.45rem;
+      letter-spacing: -0.04em;
+    }
+    .welcome p { margin: 0; color: var(--muted); font-size: 0.92rem; max-width: 38rem; }
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.7rem;
+      margin-bottom: 1rem;
+    }
+    .stat {
+      background: rgba(255,255,255,0.78);
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 16px;
+      padding: 0.85rem 0.9rem;
+      box-shadow: 0 8px 22px rgba(7,21,41,0.04);
+    }
+    .stat b { display: block; font-size: 1.18rem; letter-spacing: -0.03em; }
+    .stat span { display: block; margin-top: 0.18rem; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .insight-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 0.9rem;
+      margin-top: 1rem;
+    }
+    .insight {
+      background: rgba(255,255,255,0.86);
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 18px;
+      padding: 1.1rem 1.15rem;
+      box-shadow: 0 10px 28px rgba(7,21,41,0.04);
+    }
+    .insight h3 { margin: 0 0 0.75rem; font-size: 0.98rem; }
+    .steps { margin: 0; padding: 0; list-style: none; }
+    .steps li {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 0.7rem;
+      margin-bottom: 0.7rem;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    .steps li:last-child { margin-bottom: 0; }
+    .num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      background: var(--navy);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .checks { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.88rem; line-height: 1.7; }
+    .tools-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.9rem;
+      margin-top: 1rem;
+    }
+    .tools-grid .card { margin-top: 0; min-height: 150px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0.16rem 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+    }
+    @media (max-width: 900px) {
+      .mode-grid, .stat-row, .insight-grid, .tools-grid { grid-template-columns: 1fr; }
+      .welcome { flex-direction: column; align-items: flex-start; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -533,6 +627,21 @@ PAGE = r"""
     </header>
     <div class="app-body">
   <main>
+    <div id="homeDash">
+      <div class="welcome">
+        <div>
+          <h2>Choose a workflow</h2>
+          <p>Cryptographically verify Indian DSC-signed PDFs on Linux using CCA India trust roots — no Windows, no Adobe.</p>
+        </div>
+        <span class="chip">Local · offline crypto</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><b>{{ root_count }}</b><span>CCA trust anchors</span></div>
+        <div class="stat"><b>{{ inter_count }}</b><span>Licensed CA intermediates</span></div>
+        <div class="stat"><b>{{ version }}</b><span>Installed version</span></div>
+        <div class="stat"><b>Linux</b><span>Mint · Ubuntu · Debian</span></div>
+      </div>
+    </div>
     <div id="modeSelect" class="mode-grid">
       <div class="mode-card" id="modeVerify">
         <div class="mode-icon" style="background:var(--valid-bg);color:var(--valid)">
@@ -555,6 +664,28 @@ PAGE = r"""
         <h2>Verify BSA Agreement</h2>
         <p>Amazon Business Solutions Agreement (BSA). Drop the signed PDF to <strong>verify the digital signature</strong> — no form fill needed.</p>
       </div>
+    </div>
+
+    <div id="homeInfo" class="insight-grid">
+      <section class="insight">
+        <h3>How verification works</h3>
+        <ol class="steps">
+          <li><span class="num">1</span><span>Pick a workflow above. Drop the original digitally signed PDF — not a print/scan copy.</span></li>
+          <li><span class="num">2</span><span>We check PKCS#7 / CMS signature bytes against CCA India roots and licensed CA intermediates.</span></li>
+          <li><span class="num">3</span><span>If crypto-verified, save an Adobe-style green <strong>Signature valid</strong> stamp for upload.</span></li>
+          <li><span class="num">4</span><span>Blank NOCs: type merchant details first, then verify. Address is entered manually each time.</span></li>
+        </ol>
+      </section>
+      <section class="insight">
+        <h3>What this app checks</h3>
+        <ul class="checks">
+          <li>Signature intact (document hash matches)</li>
+          <li>Signer certificate chains to CCA India</li>
+          <li>Amazon NOC and BSA agreement PDFs</li>
+          <li>Batch verify for multiple pre-filled NOCs</li>
+          <li>Optional GST IRN helper (separate from DSC)</li>
+        </ul>
+      </section>
     </div>
 
     <div id="workArea" hidden>
@@ -584,8 +715,9 @@ PAGE = r"""
       <div id="result"></div>
     </div>
 
-    <details class="card" style="margin-top:1.2rem">
-      <summary style="cursor:pointer;font-weight:600;font-family:Fraunces,Georgia,serif">Optional: GST IRN helper</summary>
+    <div id="homeTools" class="tools-grid">
+    <details class="card">
+      <summary style="cursor:pointer;font-weight:600">Optional: GST IRN helper</summary>
       <p class="meta" style="text-align:left;margin:0.6rem 0 0.8rem">Separate from PDF DSC verify. Paste a 64-character IRN or QR JSON text.</p>
       <div class="field">
         <label for="irnInput">IRN / QR payload</label>
@@ -607,6 +739,7 @@ PAGE = r"""
       </div>
       <div id="updateStatus" class="update-status">Ready</div>
     </section>
+    </div>
     </main>
 
     <dialog class="update-dialog" id="updateDialog">
@@ -695,6 +828,12 @@ PAGE = r"""
       currentMode = mode;
       modeSelect.hidden = true;
       workArea.hidden = false;
+      const homeDash = document.getElementById('homeDash');
+      const homeInfo = document.getElementById('homeInfo');
+      const homeTools = document.getElementById('homeTools');
+      if (homeDash) homeDash.hidden = true;
+      if (homeInfo) homeInfo.hidden = true;
+      if (homeTools) homeTools.hidden = true;
       result.innerHTML = '';
       fileInput.value = '';
       lastFile = null;
@@ -718,6 +857,12 @@ PAGE = r"""
     backBtn.addEventListener('click', () => {
       modeSelect.hidden = false;
       workArea.hidden = true;
+      const homeDash = document.getElementById('homeDash');
+      const homeInfo = document.getElementById('homeInfo');
+      const homeTools = document.getElementById('homeTools');
+      if (homeDash) homeDash.hidden = false;
+      if (homeInfo) homeInfo.hidden = false;
+      if (homeTools) homeTools.hidden = false;
       result.innerHTML = '';
       fileInput.value = '';
       lastFile = null;
