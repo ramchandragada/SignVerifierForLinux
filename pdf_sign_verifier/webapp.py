@@ -376,7 +376,7 @@ PAGE = r"""
       letter-spacing: 0.06em;
       margin-bottom: 0.4rem;
     }
-    .field input, .field textarea {
+    .field input, .field textarea, .field select {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -386,13 +386,13 @@ PAGE = r"""
       color: var(--ink);
       transition: border-color .15s, box-shadow .15s;
     }
-    .field input:focus, .field textarea:focus {
+    .field input:focus, .field textarea:focus, .field select:focus {
       outline: none;
       border-color: rgba(15,107,86,0.55);
       box-shadow: 0 0 0 3px rgba(15,107,86,0.12);
     }
     .field textarea { min-height: 4.2rem; resize: vertical; }
-    .field input:disabled, .field textarea:disabled {
+    .field input:disabled, .field textarea:disabled, .field select:disabled {
       background: #f1f5f3;
       color: #3a4656;
       cursor: not-allowed;
@@ -560,7 +560,53 @@ PAGE = r"""
     const dropLabel = document.getElementById('dropLabel');
     const dropHint = document.getElementById('dropHint');
     let lastFile = null;
-    let currentMode = '';  // 'verify' or 'blank'
+    let currentMode = '';  // 'verify' or 'blank' or 'bsa'
+
+    const BRANCH_OPTIONS = [
+      'Latur Maharashtra',
+      'Solapur Maharashtra',
+      'Pune Maharashtra',
+      'Mumbai Maharashtra',
+    ];
+    const STATE_OPTIONS = [
+      'Maharashtra',
+      'Karnataka',
+      'Tamilnadu',
+    ];
+    const LATUR_AUTO_ADDRESS =
+      'R-4/3051, FLAT NO. A/03, TIRUPATI VIHAR, NEAR BALAJI MANDIR, PAPVINASH ROAD, LATUR-413512.';
+
+    function toDateInputValue(v) {
+      const raw = String(v || '').trim();
+      if (!raw) return '';
+      // dd/mm/yyyy -> yyyy-mm-dd
+      let m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) {
+        const dd = m[1].padStart(2, '0');
+        const mm = m[2].padStart(2, '0');
+        return `${m[3]}-${mm}-${dd}`;
+      }
+      // yyyy-mm-dd already
+      m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return raw;
+      return '';
+    }
+
+    function fromDateInputValue(v) {
+      const raw = String(v || '').trim();
+      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return raw;
+      return `${m[3]}/${m[2]}/${m[1]}`;
+    }
+
+    function renderSelect(id, fieldName, options, current, dis) {
+      const opts = options.map(o => {
+        const selected = String(current || '') === o ? 'selected' : '';
+        return `<option value="${esc(o)}" ${selected}>${esc(o)}</option>`;
+      }).join('');
+      const placeholder = `<option value="" ${current ? '' : 'selected'}>Select</option>`;
+      return `<select id="${id}" data-noc-field="${esc(fieldName)}" ${dis}>${placeholder}${opts}</select>`;
+    }
 
     document.getElementById('modeVerify').addEventListener('click', () => enterMode('verify'));
     document.getElementById('modeBlank').addEventListener('click', () => enterMode('blank'));
@@ -759,6 +805,23 @@ PAGE = r"""
         });
         dynMs2.addEventListener('input', () => { dynMs2.dataset.touched = '1'; });
       }
+
+      // Branch-driven address autofill for Latur template usage.
+      const branchEl = document.querySelector('[data-noc-field="branch"]');
+      const addrEl = document.querySelector('[data-noc-field="address"]');
+      if (branchEl && addrEl && !addrEl.disabled) {
+        const applyBranchAddress = () => {
+          if (branchEl.value === 'Latur Maharashtra') {
+            addrEl.value = LATUR_AUTO_ADDRESS;
+            addrEl.dataset.autofilled = '1';
+          } else if (addrEl.dataset.autofilled === '1') {
+            addrEl.value = '';
+            delete addrEl.dataset.autofilled;
+          }
+        };
+        branchEl.addEventListener('change', applyBranchAddress);
+        if (!addrEl.value) applyBranchAddress();
+      }
     }
 
     function fieldValue(noc, name) {
@@ -775,16 +838,25 @@ PAGE = r"""
         : `<div class="fill-banner">${esc(noc.message || 'Enter details, then Fill & Verify.')}</div>`;
       const title = nax ? 'Amazon NAX blank NOC' : 'Amazon NOC merchant details';
       const hint = nax
-        ? 'Date · Branch · State · M/S · M/s. · Merchant address. FC address is already pre-printed on the NOC. State is written into every state blank.'
+        ? 'Date (calendar) · Branch (dropdown) · State (dropdown) · M/S · M/s. · Merchant address. FC address is pre-printed on the NOC.'
         : 'Date · M/S · M/s. · Main place of business in Maharashtra. M/S and M/s. use the same seller name on Amazon’s form.';
       const fields = noc.fields || [];
       const inputs = fields.map((f, i) => {
         const id = 'noc_' + f.name;
         const val = esc(f.value || '');
         const ph = esc(f.label || '');
-        const control = f.multiline
-          ? `<textarea id="${id}" data-noc-field="${esc(f.name)}" placeholder="${ph}" ${dis}>${val}</textarea>`
-          : `<input id="${id}" data-noc-field="${esc(f.name)}" type="text" placeholder="${ph}" value="${val}" ${dis} />`;
+        let control = '';
+        if (nax && f.name === 'date') {
+          control = `<input id="${id}" data-noc-field="${esc(f.name)}" type="date" value="${esc(toDateInputValue(f.value))}" ${dis} />`;
+        } else if (nax && f.name === 'branch') {
+          control = renderSelect(id, f.name, BRANCH_OPTIONS, f.value || '', dis);
+        } else if (nax && f.name === 'state') {
+          control = renderSelect(id, f.name, STATE_OPTIONS, f.value || '', dis);
+        } else if (f.multiline) {
+          control = `<textarea id="${id}" data-noc-field="${esc(f.name)}" placeholder="${ph}" ${dis}>${val}</textarea>`;
+        } else {
+          control = `<input id="${id}" data-noc-field="${esc(f.name)}" type="text" placeholder="${ph}" value="${val}" ${dis} />`;
+        }
         return `<div class="field"><label for="${id}">${i + 1}) ${esc(f.label)}</label>${control}</div>`;
       }).join('');
       return `
@@ -804,7 +876,14 @@ PAGE = r"""
       if (!lastFile) return;
       const fields = [...document.querySelectorAll('[data-noc-field]')];
       const values = {};
-      for (const el of fields) values[el.dataset.nocField] = (el.value || '').trim();
+      for (const el of fields) {
+        const key = el.dataset.nocField;
+        let val = (el.value || '').trim();
+        if (key === 'date' && el.type === 'date') {
+          val = fromDateInputValue(val);
+        }
+        values[key] = val;
+      }
       if (!values.ms_name_2) values.ms_name_2 = values.ms_name || '';
       const missing = [];
       if (!values.date) missing.push('Date');
