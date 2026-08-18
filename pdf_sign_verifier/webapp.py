@@ -833,9 +833,16 @@ PAGE = r"""
       const locked = !!noc.complete && !noc.needs_fill;
       const dis = locked ? 'disabled' : '';
       const nax = noc.template === 'amazon_nax';
-      const banner = locked
-        ? `<div class="locked-banner">Details already filled — fields locked. Signature verified below.</div>`
-        : `<div class="fill-banner">${esc(noc.message || 'Enter details, then Fill & Verify.')}</div>`;
+      let banner = `<div class="fill-banner">${esc(noc.message || 'Enter details, then Fill & Verify.')}</div>`;
+      if (locked) {
+        if (data.cryptographically_verified) {
+          banner = `<div class="locked-banner">Details already filled — fields locked. Signature verified below.</div>`;
+        } else if (data.overall === 'UNSIGNED') {
+          banner = `<div class="fill-banner">Details already filled — fields locked. This file currently has no digital signature (UNSIGNED).</div>`;
+        } else {
+          banner = `<div class="fill-banner">Details already filled — fields locked. Verification status: ${esc(data.overall || 'UNKNOWN')}.</div>`;
+        }
+      }
       const title = nax ? 'Amazon NAX blank NOC' : 'Amazon NOC merchant details';
       const hint = nax
         ? 'Date (calendar) · Branch (dropdown) · State (dropdown) · M/S · M/s. · Merchant address. FC address is pre-printed on the NOC.'
