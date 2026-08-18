@@ -11,7 +11,7 @@ import webbrowser
 from pathlib import Path
 from threading import Timer
 
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, render_template_string, request, send_from_directory
 
 from . import __version__
 from .authentic import (
@@ -21,7 +21,7 @@ from .authentic import (
 from .batch import verify_many
 from .irn_qr import inspect_pdf_for_irn, inspect_text_payload, verify_irn_online
 from .noc_fields import fill_noc_form, inspect_noc_form
-from .trust_store import DEFAULT_TRUST_DIR, load_intermediate_certs, trust_root_names
+from .trust_store import DEFAULT_TRUST_DIR, PACKAGE_ROOT, load_intermediate_certs, trust_root_names
 from .verified_appearance import export_verified_appearance_pdf
 from .verifier import verify_pdf
 
@@ -100,11 +100,34 @@ PAGE = r"""
       animation: rise 0.7s cubic-bezier(.2,.8,.2,1) both;
       margin-bottom: 1.4rem;
     }
+    .hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.85rem;
+    }
+    .aspera-logo {
+      height: 44px;
+      width: auto;
+      display: block;
+      border-radius: 10px;
+      box-shadow: 0 10px 22px rgba(8, 26, 54, 0.28);
+    }
+    .update-dialog {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 1.3rem 1.4rem;
+      width: min(28rem, calc(100% - 2rem));
+      box-shadow: var(--shadow);
+    }
+    .update-dialog::backdrop { background: rgba(16, 36, 31, 0.35); }
+    .update-dialog h3 { margin: 0 0 0.45rem; font-family: "Fraunces", Georgia, serif; }
+    .update-dialog p { margin: 0 0 1rem; color: var(--muted); line-height: 1.5; }
     .brand-mark {
       display: inline-flex;
       align-items: center;
       gap: 0.55rem;
-      margin-bottom: 0.85rem;
       color: var(--accent-deep);
       font-size: 0.78rem;
       font-weight: 600;
@@ -495,7 +518,10 @@ PAGE = r"""
 <body>
   <main>
     <header class="hero">
-      <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Indian DSC · CCA trust · Linux</div>
+      <div class="hero-top">
+        <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Indian DSC · CCA trust · Linux</div>
+        <img class="aspera-logo" src="/brand/aspera-logo.svg" alt="Aspera" />
+      </div>
       <h1>PDF Sign <span>Verifier</span></h1>
       <p class="tagline">Verify Indian DSC-signed PDFs on Linux — no Windows, no Adobe.</p>
     </header>
@@ -570,12 +596,21 @@ PAGE = r"""
           <h2 style="margin:0">App update</h2>
           <div class="meta" style="text-align:left;margin:0.35rem 0 0">Current version: {{ version }}</div>
         </div>
-        <button type="button" class="secondary" id="updateBtn">Update to latest version</button>
+        <button type="button" class="secondary" id="updateBtn">Check for update</button>
       </div>
       <div id="updateStatus" class="update-status">Ready</div>
     </section>
 
-    <footer>PDF Sign Verifier {{ version }} · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
+    <dialog class="update-dialog" id="updateDialog">
+      <h3>Install update?</h3>
+      <p id="updateDialogText">A new version is downloaded. Install now? Your computer will ask for the password.</p>
+      <div class="actions" style="justify-content:flex-end;margin-top:0">
+        <button type="button" class="secondary" id="updateLaterBtn">Later</button>
+        <button type="button" class="success" id="updateInstallBtn">Install update</button>
+      </div>
+    </dialog>
+
+    <footer>PDF Sign Verifier {{ version }} · Aspera · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
   </main>
 
   <script>
@@ -592,6 +627,11 @@ PAGE = r"""
     const dropHint = document.getElementById('dropHint');
     const updateBtn = document.getElementById('updateBtn');
     const updateStatus = document.getElementById('updateStatus');
+    const updateDialog = document.getElementById('updateDialog');
+    const updateDialogText = document.getElementById('updateDialogText');
+    const updateInstallBtn = document.getElementById('updateInstallBtn');
+    const updateLaterBtn = document.getElementById('updateLaterBtn');
+    let pendingUpdateVersion = '';
     let lastFile = null;
     let currentMode = '';  // 'verify' or 'blank' or 'bsa'
 
@@ -721,36 +761,91 @@ PAGE = r"""
     });
 
     updateBtn?.addEventListener('click', runAppUpdate);
+    updateLaterBtn?.addEventListener('click', () => updateDialog?.close());
+    updateInstallBtn?.addEventListener('click', async () => {
+      updateDialog?.close();
+      await installDownloadedUpdate();
+    });
+    checkUpdateStatus();
+
+    async function checkUpdateStatus() {
+      if (!updateStatus) return;
+      try {
+        const res = await fetch('/api/app-update/status');
+        const data = await res.json().catch(() => ({}));
+        if (data.update_available) {
+          updateStatus.textContent = `Update available: ${data.latest_version} (you have ${data.current_version})`;
+          if (updateBtn) updateBtn.textContent = 'Download update';
+        } else if (data.latest_version) {
+          updateStatus.textContent = `Ready · latest is ${data.latest_version}`;
+        }
+      } catch (err) {
+        /* stay on Ready if offline */
+      }
+    }
 
     async function runAppUpdate() {
       if (!updateBtn || !updateStatus) return;
       updateBtn.disabled = true;
       const original = updateBtn.textContent;
-      updateBtn.textContent = 'Updating...';
-      updateStatus.textContent = 'Checking latest release and installing update...';
+      updateBtn.textContent = 'Checking...';
+      updateStatus.textContent = 'Checking for a new version...';
       try {
-        const res = await fetch('/api/app-update', { method: 'POST' });
+        const statusRes = await fetch('/api/app-update/status');
+        const status = await statusRes.json().catch(() => ({}));
+        if (!statusRes.ok) throw new Error(status.error || 'Could not check for update');
+        if (!status.update_available) {
+          updateStatus.textContent = `Already up to date (${status.current_version}).`;
+          return;
+        }
+        updateBtn.textContent = 'Downloading...';
+        updateStatus.textContent = `Downloading ${status.latest_version}...`;
+        const dlRes = await fetch('/api/app-update/download', { method: 'POST' });
+        const dl = await dlRes.json().catch(() => ({}));
+        if (!dlRes.ok || !dl.downloaded) throw new Error(dl.error || 'Download failed');
+        pendingUpdateVersion = dl.latest_version || status.latest_version || '';
+        updateStatus.textContent = `${pendingUpdateVersion} downloaded. Waiting for install confirmation.`;
+        if (updateDialogText) {
+          updateDialogText.textContent =
+            `Version ${pendingUpdateVersion} is downloaded. Install now? Your computer will ask for the password.`;
+        }
+        if (updateDialog?.showModal) updateDialog.showModal();
+        else {
+          const ok = confirm(`Version ${pendingUpdateVersion} is downloaded. Install now?`);
+          if (ok) await installDownloadedUpdate();
+        }
+      } catch (err) {
+        updateStatus.textContent = String(err.message || err);
+      } finally {
+        updateBtn.disabled = false;
+        updateBtn.textContent = original || 'Check for update';
+      }
+    }
+
+    async function installDownloadedUpdate() {
+      if (!updateBtn || !updateStatus) return;
+      updateBtn.disabled = true;
+      updateBtn.textContent = 'Installing...';
+      updateStatus.textContent = 'Password window should appear. Installing update...';
+      try {
+        const res = await fetch('/api/app-update/install', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         const latest = data.latest_version ? `Latest: ${data.latest_version}` : '';
         if (data.updated) {
           updateStatus.textContent = [data.message, latest, 'Please close this window and start the app again.'].filter(Boolean).join('\n');
           return;
         }
-        const parts = [
-          data.message || data.error || (res.ok ? 'Update check finished.' : 'Update failed'),
+        updateStatus.textContent = [
+          data.message || data.error || 'Install did not finish.',
           latest,
           data.details,
           data.command ? ('If a password window did not appear, run this in terminal:\n' + data.command) : '',
-        ].filter(Boolean);
-        updateStatus.textContent = parts.join('\n\n');
-        if (!res.ok && !data.message && !data.command) {
-          throw new Error(data.error || 'Update failed');
-        }
+        ].filter(Boolean).join('\n\n');
       } catch (err) {
         updateStatus.textContent = String(err.message || err);
       } finally {
         updateBtn.disabled = false;
-        updateBtn.textContent = original || 'Update to latest version';
+        updateBtn.textContent = 'Check for update';
       }
     }
 
@@ -1271,6 +1366,18 @@ def _run_install(deb_path: Path) -> subprocess.CompletedProcess:
     return last
 
 
+def _static_dir() -> Path:
+    here = Path(__file__).resolve().parent / "static"
+    if here.is_dir():
+        return here
+    return PACKAGE_ROOT / "static"
+
+
+@app.get("/brand/aspera-logo.svg")
+def aspera_logo():
+    return send_from_directory(_static_dir(), "aspera-logo.svg", mimetype="image/svg+xml")
+
+
 @app.get("/")
 def home():
     try:
@@ -1285,8 +1392,25 @@ def home():
     )
 
 
-@app.post("/api/app-update")
-def api_app_update():
+@app.get("/api/app-update/status")
+def api_app_update_status():
+    try:
+        latest = _latest_deb_release()
+    except Exception as exc:
+        return jsonify({"error": f"Could not check latest release: {exc}"}), 500
+    current = _parse_version_tuple(__version__)
+    latest_v = _parse_version_tuple(latest["version"])
+    return jsonify(
+        {
+            "current_version": __version__,
+            "latest_version": latest["version"],
+            "update_available": latest_v > current,
+        }
+    )
+
+
+@app.post("/api/app-update/download")
+def api_app_update_download():
     try:
         latest = _latest_deb_release()
     except Exception as exc:
@@ -1297,8 +1421,8 @@ def api_app_update():
     if latest_v <= current:
         return jsonify(
             {
-                "updated": False,
-                "requires_admin": False,
+                "downloaded": False,
+                "update_available": False,
                 "message": f"Already up to date ({__version__}).",
                 "latest_version": latest["version"],
             }
@@ -1314,6 +1438,25 @@ def api_app_update():
         UPDATE_DEB_PATH.chmod(0o644)
     except Exception as exc:
         return jsonify({"error": f"Download failed: {exc}"}), 500
+    return jsonify(
+        {
+            "downloaded": True,
+            "latest_version": latest["version"],
+            "path": str(UPDATE_DEB_PATH),
+            "message": f"Downloaded {latest['version']}. Ready to install.",
+        }
+    )
+
+
+@app.post("/api/app-update/install")
+def api_app_update_install():
+    if not UPDATE_DEB_PATH.is_file():
+        return jsonify({"error": "No downloaded update found. Download first."}), 400
+    try:
+        latest = _latest_deb_release()
+        latest_version = latest["version"]
+    except Exception:
+        latest_version = ""
 
     try:
         proc = _run_install(UPDATE_DEB_PATH)
@@ -1322,41 +1465,41 @@ def api_app_update():
             {
                 "updated": False,
                 "requires_admin": True,
-                "error": "Automatic update failed.",
                 "message": f"Could not start installer: {exc}",
                 "command": _manual_update_command(),
-                "latest_version": latest["version"],
+                "latest_version": latest_version,
             }
-        ), 200
+        )
 
     if proc.returncode == 0:
         return jsonify(
             {
                 "updated": True,
-                "requires_admin": False,
-                "message": f"Updated successfully to {latest['version']}.",
-                "latest_version": latest["version"],
+                "message": f"Updated successfully to {latest_version or 'the latest version'}.",
+                "latest_version": latest_version,
             }
         )
 
     combined = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
-    if _sudo_auth_required(combined):
-        message = (
-            "A password window should appear so the update can install. "
-            "If it did not, the package is already downloaded — run the command below."
-        )
-    else:
-        message = "Automatic update needs your admin password to finish installing."
     return jsonify(
         {
             "updated": False,
             "requires_admin": True,
-            "message": message,
+            "message": (
+                "A password window should appear so the update can install. "
+                "If it did not, the package is already downloaded — run the command below."
+            ),
             "details": combined[:1200],
             "command": _manual_update_command(),
-            "latest_version": latest["version"],
+            "latest_version": latest_version,
         }
     )
+
+
+@app.post("/api/app-update")
+def api_app_update():
+    """Back-compat: check only. UI now uses download then install."""
+    return api_app_update_status()
 
 
 def _verify_upload_to_json(upload) -> tuple[dict, int]:
