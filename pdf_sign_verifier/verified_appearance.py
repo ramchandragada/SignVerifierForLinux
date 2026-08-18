@@ -307,9 +307,40 @@ def export_verified_appearance_pdf(
                 pass
 
         page = doc[page_index]
-        # Capture Authorised Signatory before deleting the widget (layout stays).
+        # Capture layout anchors BEFORE deleting widgets (deletion removes
+        # appearance streams that contain "Digitally signed" / "Signature Not
+        # Verified" text, which _anchor_rect needs).
         auth = _find_authorised_signatory(page)
         for_amazon = page.search_for("For Amazon Seller Services")
+
+        sig_widget_rects: list = []
+        try:
+            for widget in list(page.widgets() or []):
+                ft = (getattr(widget, "field_type_string", "") or "").lower()
+                fn = (getattr(widget, "field_name", "") or "").lower()
+                if "sig" in ft or "sign" in fn:
+                    sig_widget_rects.append(widget.rect)
+                    page_index = page.number  # confirm page
+        except Exception:
+            pass
+
+        cover = _anchor_rect(page)
+
+        # If anchor_rect fell through to fallback but we have saved widget
+        # rects, use the widget union — this is the actual signature location.
+        if sig_widget_rects:
+            import fitz as _fitz
+            wx0 = min(r.x0 for r in sig_widget_rects) - 1
+            wy0 = min(r.y0 for r in sig_widget_rects) - 1
+            wx1 = max(max(r.x1 for r in sig_widget_rects) + 10, wx0 + 190)
+            wy1 = max(r.y1 for r in sig_widget_rects) + 2
+            widget_cover = _fitz.Rect(wx0, wy0, wx1, wy1)
+            # Use widget_cover if it's clearly different from the fallback
+            # (fallback means anchor_rect found nothing useful)
+            if abs(cover.y0 - widget_cover.y0) > 40:
+                cover = widget_cover
+
+        # Now delete sig widgets
         try:
             for widget in list(page.widgets() or []):
                 ft = (getattr(widget, "field_type_string", "") or "").lower()
@@ -318,8 +349,6 @@ def export_verified_appearance_pdf(
                     page.delete_widget(widget)
         except Exception:
             pass
-
-        cover = _anchor_rect(page)
         pr = page.rect
         if auth:
             cover.y1 = min(cover.y1, auth.y0 - 6)
