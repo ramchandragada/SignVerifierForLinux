@@ -431,6 +431,39 @@ PAGE = r"""
       .drop { padding: 1.8rem 1rem 1.4rem; }
       .adobe-stamp { flex-direction: column; align-items: flex-start; }
     }
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1.2rem;
+      animation: rise 0.7s cubic-bezier(.2,.8,.2,1) 0.1s both;
+    }
+    .mode-card {
+      background: var(--panel-solid);
+      border: 1.5px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1.4rem 1.3rem;
+      cursor: pointer;
+      transition: border-color .2s, transform .2s, box-shadow .2s;
+      text-align: left;
+    }
+    .mode-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-3px);
+      box-shadow: 0 16px 40px rgba(15,107,86,0.12);
+    }
+    .mode-card h2 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.18rem;
+      margin: 0.8rem 0 0.4rem;
+    }
+    .mode-card p { color: var(--muted); margin: 0; font-size: 0.92rem; line-height: 1.5; }
+    .mode-card p strong { color: var(--ink); }
+    .mode-icon {
+      width: 52px; height: 52px;
+      border-radius: 14px;
+      display: grid; place-items: center;
+    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation: none !important;
@@ -444,31 +477,56 @@ PAGE = r"""
     <header class="hero">
       <div class="brand-mark"><span class="seal" aria-hidden="true">V</span> Indian DSC · CCA trust · Linux</div>
       <h1>PDF Sign <span>Verifier</span></h1>
-      <p class="tagline">Cryptographically verify Indian DSC-signed PDFs on Linux — no Windows, no Adobe. Amazon blank NOC fill stays fully supported when that form is detected.</p>
+      <p class="tagline">Verify Indian DSC-signed PDFs on Linux — no Windows, no Adobe.</p>
     </header>
 
-    <div class="drop" id="drop">
-      <div class="drop-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
-          <path d="M14 3v5h5"/>
-          <path d="M12 11v6"/>
-          <path d="M9.5 13.5 12 11l2.5 2.5"/>
-        </svg>
+    <div id="modeSelect" class="mode-grid">
+      <div class="mode-card" id="modeVerify">
+        <div class="mode-icon" style="background:var(--valid-bg);color:var(--valid)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+        </div>
+        <h2>Verify Pre-filled Signed NOC</h2>
+        <p>NOC already has seller details filled in. Drop the signed PDF to <strong>verify the digital signature</strong> and save with Adobe-style green tick.</p>
       </div>
-      <p><strong>Drop one signed PDF — or several for batch verify</strong></p>
-      <p>PKCS#7 / CMS check against CCA India roots + licensed CA intermediates.</p>
-      <div class="actions">
-        <button type="button" id="browse">Choose PDF(s)</button>
-        <button type="button" class="secondary" id="clear" hidden>Clear</button>
+      <div class="mode-card" id="modeBlank">
+        <div class="mode-icon" style="background:var(--gold-soft);color:#8a5f12">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+        </div>
+        <h2>Fill Blank Signed NOC</h2>
+        <p>NOC is blank (dotted lines / empty fields). <strong>Add seller name, date, address</strong> first, then verify the digital signature.</p>
       </div>
-      <input id="file" type="file" accept="application/pdf,.pdf" multiple />
-      <div class="meta" id="fileMeta">No file selected</div>
     </div>
 
-    <div class="card" style="margin-top:1rem">
-      <h2 style="margin:0 0 0.35rem;font-family:Fraunces,Georgia,serif;font-size:1.15rem">Optional: GST IRN helper</h2>
-      <p class="meta" style="text-align:left;margin:0 0 0.8rem">Separate from PDF DSC verify. Paste a 64-character IRN or QR JSON text.</p>
+    <div id="workArea" hidden>
+      <div class="actions" style="margin-bottom:1rem">
+        <button type="button" class="secondary" id="backBtn">← Back to options</button>
+        <button type="button" class="secondary" id="clear" hidden>Clear file</button>
+      </div>
+
+      <div class="drop" id="drop">
+        <div class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+            <path d="M14 3v5h5"/>
+            <path d="M12 11v6"/>
+            <path d="M9.5 13.5 12 11l2.5 2.5"/>
+          </svg>
+        </div>
+        <p><strong id="dropLabel">Drop signed PDF here</strong></p>
+        <p id="dropHint">PKCS#7 / CMS check against CCA India roots + licensed CA intermediates.</p>
+        <div class="actions">
+          <button type="button" id="browse">Choose PDF</button>
+        </div>
+        <input id="file" type="file" accept="application/pdf,.pdf" />
+        <div class="meta" id="fileMeta">No file selected</div>
+      </div>
+
+      <div id="result"></div>
+    </div>
+
+    <details class="card" style="margin-top:1.2rem">
+      <summary style="cursor:pointer;font-weight:600;font-family:Fraunces,Georgia,serif">Optional: GST IRN helper</summary>
+      <p class="meta" style="text-align:left;margin:0.6rem 0 0.8rem">Separate from PDF DSC verify. Paste a 64-character IRN or QR JSON text.</p>
       <div class="field">
         <label for="irnInput">IRN / QR payload</label>
         <textarea id="irnInput" placeholder="Paste IRN (64 hex) or QR JSON"></textarea>
@@ -477,20 +535,57 @@ PAGE = r"""
         <button type="button" class="secondary" id="irnBtn">Inspect IRN</button>
       </div>
       <pre id="irnOut" hidden style="margin-top:0.8rem"></pre>
-    </div>
+    </details>
 
-    <div id="result"></div>
     <footer>PDF Sign Verifier {{ version }} · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
   </main>
 
   <script>
+    const modeSelect = document.getElementById('modeSelect');
+    const workArea = document.getElementById('workArea');
     const drop = document.getElementById('drop');
     const fileInput = document.getElementById('file');
     const browse = document.getElementById('browse');
     const clearBtn = document.getElementById('clear');
+    const backBtn = document.getElementById('backBtn');
     const fileMeta = document.getElementById('fileMeta');
     const result = document.getElementById('result');
+    const dropLabel = document.getElementById('dropLabel');
+    const dropHint = document.getElementById('dropHint');
     let lastFile = null;
+    let currentMode = '';  // 'verify' or 'blank'
+
+    document.getElementById('modeVerify').addEventListener('click', () => enterMode('verify'));
+    document.getElementById('modeBlank').addEventListener('click', () => enterMode('blank'));
+
+    function enterMode(mode) {
+      currentMode = mode;
+      modeSelect.hidden = true;
+      workArea.hidden = false;
+      result.innerHTML = '';
+      fileInput.value = '';
+      lastFile = null;
+      clearBtn.hidden = true;
+      fileMeta.textContent = 'No file selected';
+      if (mode === 'verify') {
+        dropLabel.textContent = 'Drop the pre-filled signed NOC / any signed PDF';
+        dropHint.textContent = 'Signature will be verified immediately. For batch, select multiple files.';
+        fileInput.multiple = true;
+      } else {
+        dropLabel.textContent = 'Drop the blank signed NOC';
+        dropHint.textContent = 'We\u2019ll detect blank fields so you can add seller name, date, address — then verify.';
+        fileInput.multiple = false;
+      }
+    }
+
+    backBtn.addEventListener('click', () => {
+      modeSelect.hidden = false;
+      workArea.hidden = true;
+      result.innerHTML = '';
+      fileInput.value = '';
+      lastFile = null;
+      currentMode = '';
+    });
 
     browse.addEventListener('click', () => fileInput.click());
     clearBtn.addEventListener('click', () => {
@@ -536,11 +631,11 @@ PAGE = r"""
 
     async function handleFiles(files) {
       clearBtn.hidden = false;
-      if (files.length === 1) {
+      if (currentMode === 'verify' && files.length > 1) {
+        await handleBatch(files);
+      } else {
         await handlePdf(files[0]);
-        return;
       }
-      await handleBatch(files);
     }
 
     async function handleBatch(files) {
@@ -579,7 +674,6 @@ PAGE = r"""
             </div>
           </div>
           <div class="grid">${rows}</div>
-          <div class="note">Amazon blank-NOC fill works on a single PDF drop (not in batch mode).</div>
         </div>`;
     }
 
@@ -588,7 +682,9 @@ PAGE = r"""
       fileMeta.textContent = `Checking: ${file.name} (${Math.round(file.size/1024)} KB)`;
       clearBtn.hidden = false;
       browse.disabled = true;
-      result.innerHTML = `<div class="card">Inspecting signature (and Amazon NOC fields if present)…</div>`;
+      result.innerHTML = `<div class="card">${currentMode === 'blank'
+        ? 'Detecting blank NOC fields…'
+        : 'Verifying digital signature…'}</div>`;
       const body = new FormData();
       body.append('pdf', file);
       try {
@@ -606,17 +702,29 @@ PAGE = r"""
     function renderAll(data) {
       const noc = data.noc_form || {};
       let html = '';
-      if (noc.is_amazon_noc) {
+      if (currentMode === 'blank' && noc.is_amazon_noc) {
         html += renderNocForm(noc, data);
-      }
-      if (!noc.needs_fill) {
+        if (noc.needs_fill) {
+          if (data.signatures?.length) {
+            html += `<div class="card note" style="margin-top:1rem">Amazon signature is present on this blank NOC.
+              Fill the fields above, then click <strong>Fill &amp; Verify</strong>.</div>`;
+          } else {
+            html += `<div class="card note" style="margin-top:1rem">Fill the details above, then <strong>Fill &amp; Verify</strong>.
+              If this is a Print-to-PDF copy without PKCS#7, verification will show UNSIGNED — use the original digitally signed blank for crypto verify.</div>`;
+          }
+        } else {
+          html += renderReport(data);
+        }
+      } else if (currentMode === 'blank' && !noc.is_amazon_noc) {
+        html += `<div class="card"><span class="badge UNSIGNED">NOT DETECTED</span>
+          <p style="margin-top:0.5rem">This PDF does not appear to be a blank Amazon NOC. Try the <strong>Verify Pre-filled Signed NOC</strong> option instead, or confirm this is a supported Amazon blank format.</p></div>`;
         html += renderReport(data);
-      } else if (data.signatures?.length) {
-        html += `<div class="card note" style="margin-top:1rem">Amazon signature is present on this blank NOC.
-          Fill the merchant fields above, then click <strong>Fill &amp; Verify</strong> to write the details and run the crypto check.</div>`;
-      } else if (noc.template === 'amazon_nax') {
-        html += `<div class="card note" style="margin-top:1rem">Fill the NAX details above, then <strong>Fill &amp; Verify</strong>.
-          If this PDF is a Print-to-PDF copy with no PKCS#7, verification will correctly show UNSIGNED — use the original digitally signed blank when Amazon provided one.</div>`;
+      } else {
+        if (noc.is_amazon_noc && noc.needs_fill) {
+          html += `<div class="card"><span class="badge MODIFIED">BLANK NOC</span>
+            <p style="margin-top:0.5rem">This NOC has empty fields. Go back and use <strong>Fill Blank Signed NOC</strong> to add seller details first.</p></div>`;
+        }
+        html += renderReport(data);
       }
       result.innerHTML = html;
       wireButtons(data);
