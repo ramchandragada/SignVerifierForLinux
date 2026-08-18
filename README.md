@@ -85,6 +85,19 @@ Amazon may issue a **digitally signed blank NOC**. In the web UI:
 
 Filling blank fields after Amazon’s signature is expected; the crypto check still validates Amazon’s signature (status may show **MODIFIED** because the form was completed after signing).
 
+## Amazon NAX-1 blank NOC (generic / other states)
+
+Drop **Blank NAX 1 NOC** (or similar generic Amazon letter with dotted lines). The app shows extra fields:
+
+1. Date  
+2. Tax Officer Branch  
+3. Amazon FC / premises address  
+4. State  
+5. M/S and M/s. (merchant name)  
+6. Merchant main place of business  
+
+Then **Fill & Verify**. If the file is a Print-to-PDF with **no PKCS#7**, verification will show **UNSIGNED** — that copy cannot be cryptographically verified. Use Amazon’s original digitally signed blank whenever available. Maharashtra BOM AcroForm NOCs keep the previous fill path.
+
 ## Batch verify (CA firms / desks)
 
 ```bash

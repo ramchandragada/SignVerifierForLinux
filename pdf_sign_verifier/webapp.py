@@ -614,6 +614,9 @@ PAGE = r"""
       } else if (data.signatures?.length) {
         html += `<div class="card note" style="margin-top:1rem">Amazon signature is present on this blank NOC.
           Fill the merchant fields above, then click <strong>Fill &amp; Verify</strong> to write the details and run the crypto check.</div>`;
+      } else if (noc.template === 'amazon_nax') {
+        html += `<div class="card note" style="margin-top:1rem">Fill the NAX details above, then <strong>Fill &amp; Verify</strong>.
+          If this PDF is a Print-to-PDF copy with no PKCS#7, verification will correctly show UNSIGNED — use the original digitally signed blank when Amazon provided one.</div>`;
       }
       result.innerHTML = html;
       wireButtons(data);
@@ -626,13 +629,13 @@ PAGE = r"""
       if (reportBtn) reportBtn.addEventListener('click', downloadReport);
       const fillBtn = document.getElementById('fillVerifyBtn');
       if (fillBtn) fillBtn.addEventListener('click', fillAndVerify);
-      const ms1 = document.getElementById('noc_ms_name');
-      const ms2 = document.getElementById('noc_ms_name_2');
-      if (ms1 && ms2 && !ms2.disabled) {
-        ms1.addEventListener('input', () => {
-          if (!ms2.dataset.touched) ms2.value = ms1.value;
+      const dynMs1 = document.querySelector('[data-noc-field="ms_name"]');
+      const dynMs2 = document.querySelector('[data-noc-field="ms_name_2"]');
+      if (dynMs1 && dynMs2 && !dynMs2.disabled) {
+        dynMs1.addEventListener('input', () => {
+          if (!dynMs2.dataset.touched) dynMs2.value = dynMs1.value;
         });
-        ms2.addEventListener('input', () => { ms2.dataset.touched = '1'; });
+        dynMs2.addEventListener('input', () => { dynMs2.dataset.touched = '1'; });
       }
     }
 
@@ -644,34 +647,30 @@ PAGE = r"""
     function renderNocForm(noc, data) {
       const locked = !!noc.complete && !noc.needs_fill;
       const dis = locked ? 'disabled' : '';
+      const nax = noc.template === 'amazon_nax';
       const banner = locked
         ? `<div class="locked-banner">Details already filled — fields locked. Signature verified below.</div>`
-        : `<div class="fill-banner">${esc(noc.message || 'Enter merchant details, then Fill & Verify.')}</div>`;
+        : `<div class="fill-banner">${esc(noc.message || 'Enter details, then Fill & Verify.')}</div>`;
+      const title = nax ? 'Amazon NAX blank NOC' : 'Amazon NOC merchant details';
+      const hint = nax
+        ? 'Date · Branch · FC address · State · M/S · M/s. · Merchant address. State is written into every state blank on the letter.'
+        : 'Date · M/S · M/s. · Main place of business in Maharashtra. M/S and M/s. use the same seller name on Amazon’s form.';
+      const fields = noc.fields || [];
+      const inputs = fields.map((f, i) => {
+        const id = 'noc_' + f.name;
+        const val = esc(f.value || '');
+        const ph = esc(f.label || '');
+        const control = f.multiline
+          ? `<textarea id="${id}" data-noc-field="${esc(f.name)}" placeholder="${ph}" ${dis}>${val}</textarea>`
+          : `<input id="${id}" data-noc-field="${esc(f.name)}" type="text" placeholder="${ph}" value="${val}" ${dis} />`;
+        return `<div class="field"><label for="${id}">${i + 1}) ${esc(f.label)}</label>${control}</div>`;
+      }).join('');
       return `
         <div class="card noc-form">
-          <h2>Amazon NOC merchant details</h2>
-          <p class="hint">Date · M/S · M/s. · Main place of business in Maharashtra. M/S and M/s. use the same seller name on Amazon’s form.</p>
+          <h2>${title}</h2>
+          <p class="hint">${hint}</p>
           ${banner}
-          <div class="field">
-            <label for="noc_date">1) Date</label>
-            <input id="noc_date" type="text" placeholder="DD/MM/YYYY" value="${esc(fieldValue(noc,'date'))}" ${dis} />
-          </div>
-          <div class="field">
-            <label for="noc_ms_name">2) M/S</label>
-            <input id="noc_ms_name" type="text" placeholder="Merchant / seller legal name" value="${esc(fieldValue(noc,'ms_name'))}" ${dis} />
-          </div>
-          <div class="field">
-            <label for="noc_ms_name_2">3) M/s.</label>
-            <input id="noc_ms_name_2" type="text" placeholder="Same merchant name (usually)" value="${esc(fieldValue(noc,'ms_name_2'))}" ${dis} />
-          </div>
-          <div class="field">
-            <label for="noc_address">4) Main place of business in Maharashtra</label>
-            <textarea id="noc_address" placeholder="Full address" ${dis}>${esc(fieldValue(noc,'address'))}</textarea>
-          </div>
-          <div class="field">
-            <label for="noc_address_line2">Address line 2 (optional)</label>
-            <input id="noc_address_line2" type="text" placeholder="Overflow address line" value="${esc(fieldValue(noc,'address_line2'))}" ${dis} />
-          </div>
+          ${inputs}
           ${locked ? '' : `
           <div class="actions" style="justify-content:flex-start">
             <button type="button" class="success" id="fillVerifyBtn">Fill &amp; Verify signature</button>
@@ -681,25 +680,26 @@ PAGE = r"""
 
     async function fillAndVerify() {
       if (!lastFile) return;
-      const date = document.getElementById('noc_date')?.value?.trim() || '';
-      const ms = document.getElementById('noc_ms_name')?.value?.trim() || '';
-      const ms2 = document.getElementById('noc_ms_name_2')?.value?.trim() || '';
-      const address = document.getElementById('noc_address')?.value?.trim() || '';
-      const address2 = document.getElementById('noc_address_line2')?.value?.trim() || '';
-      if (!date || !ms || !address) {
-        alert('Please fill Date, M/S, and the Maharashtra address.');
+      const fields = [...document.querySelectorAll('[data-noc-field]')];
+      const values = {};
+      for (const el of fields) values[el.dataset.nocField] = (el.value || '').trim();
+      if (!values.ms_name_2) values.ms_name_2 = values.ms_name || '';
+      const missing = [];
+      if (!values.date) missing.push('Date');
+      if (!values.ms_name) missing.push('M/S');
+      if (!values.address) missing.push('Address');
+      if (document.getElementById('noc_branch') && !values.branch) missing.push('Branch');
+      if (document.getElementById('noc_state') && !values.state) missing.push('State');
+      if (document.getElementById('noc_fc_address') && !values.fc_address) missing.push('FC address');
+      if (missing.length) {
+        alert('Please fill: ' + missing.join(', '));
         return;
       }
-      if (!ms2) ms2 = ms;
       const btn = document.getElementById('fillVerifyBtn');
       if (btn) { btn.disabled = true; btn.textContent = 'Filling & verifying…'; }
       const body = new FormData();
       body.append('pdf', lastFile);
-      body.append('date', date);
-      body.append('ms_name', ms);
-      body.append('ms_name_2', ms2);
-      body.append('address', address);
-      body.append('address_line2', address2);
+      for (const [k, v] of Object.entries(values)) body.append(k, v);
       try {
         const res = await fetch('/api/fill-and-verify', { method: 'POST', body });
         const data = await res.json();
@@ -1015,6 +1015,9 @@ def api_fill_and_verify():
     ms_name_2 = (request.form.get("ms_name_2") or "").strip() or ms_name
     address = (request.form.get("address") or "").strip()
     address_line2 = (request.form.get("address_line2") or "").strip()
+    branch = (request.form.get("branch") or "").strip()
+    state = (request.form.get("state") or "").strip()
+    fc_address = (request.form.get("fc_address") or "").strip()
 
     with tempfile.TemporaryDirectory(prefix="pdfsig-fill-") as tmp:
         source = Path(tmp) / Path(upload.filename).name
@@ -1030,6 +1033,9 @@ def api_fill_and_verify():
                 ms_name_2=ms_name_2,
                 address=address,
                 address_line2=address_line2,
+                branch=branch,
+                state=state,
+                fc_address=fc_address,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
