@@ -415,7 +415,10 @@ PAGE = r"""
       text-align: left;
       background: #f3f6f4;
       border-top: 1px solid var(--line);
+      white-space: normal;
+      line-height: 1.45;
     }
+    .statusbar .contributors { color: var(--ink); }
     .noc-form h2 {
       margin: 0 0 0.35rem;
       font-family: "Fraunces", Georgia, serif;
@@ -751,7 +754,7 @@ PAGE = r"""
       </div>
     </dialog>
     </div>
-    <footer class="statusbar">PDF Sign Verifier {{ version }} · Aspera · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
+    <footer class="statusbar">PDF Sign Verifier {{ version }} · Aspera · <span class="contributors">Contributors: Vijayalaxmi Nuti, Tarun Pandal, Amar Vallakatti, Balaji Dube</span> · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
   </div>
 
   <script>
