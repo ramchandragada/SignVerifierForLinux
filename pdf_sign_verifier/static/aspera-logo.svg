@@ -1,5 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 84" role="img" aria-label="Aspera">
-  <rect width="320" height="84" rx="12" fill="#081A36"/>
-  <path d="M28 62 L58 18 L88 62" fill="none" stroke="#B7B6F4" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="104" y="54" fill="#FFFFFF" font-family="Sora, Arial, Helvetica, sans-serif" font-size="32" font-weight="700" letter-spacing="3.2">SPERA</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 96" role="img" aria-label="Aspera">
+  <rect width="640" height="96" fill="#001738"/>
+  <defs>
+    <linearGradient id="ag" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4e8cfd"/>
+      <stop offset="100%" stop-color="#1372fb"/>
+    </linearGradient>
+  </defs>
+  <path d="M40 70 L96 36 L152 70" fill="none" stroke="url(#ag)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="176" y="68" fill="#FFFFFF" font-family="Sora, Arial, Helvetica, sans-serif" font-size="48" font-weight="700" letter-spacing="4">SPERA</text>
 </svg>

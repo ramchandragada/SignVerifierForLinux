@@ -52,7 +52,8 @@ mkdir -p \
   "${STAGE}/opt/${PKG_NAME}" \
   "${STAGE}/usr/bin" \
   "${STAGE}/usr/share/applications" \
-  "${STAGE}/usr/share/doc/${PKG_NAME}"
+  "${STAGE}/usr/share/doc/${PKG_NAME}" \
+  "${STAGE}/usr/share/icons/hicolor/scalable/apps"
 
 # Bundle fonts into the app for systems without liberation/urw
 mkdir -p "${ROOT}/packaging/bundle-fonts"
@@ -121,18 +122,27 @@ EOF
 chmod 0755 "${STAGE}/usr/bin/pdf-sign-verifier"
 
 # Desktop entry (XFCE / GNOME / KDE / Cinnamon)
+for sz in 16 32 48 64 128 256 512; do
+  mkdir -p "${STAGE}/usr/share/icons/hicolor/${sz}x${sz}/apps"
+  install -m 0644 "${ROOT}/packaging/icons/pdf-sign-verifier-${sz}.png" \
+    "${STAGE}/usr/share/icons/hicolor/${sz}x${sz}/apps/pdf-sign-verifier.png"
+done
+install -m 0644 "${ROOT}/packaging/icons/pdf-sign-verifier.svg" \
+  "${STAGE}/usr/share/icons/hicolor/scalable/apps/pdf-sign-verifier.svg"
+
 cat > "${STAGE}/usr/share/applications/pdf-sign-verifier.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=PDF Sign Verifier
 Comment=Verify Indian DSC / Amazon NOC PDF signatures
 Exec=pdf-sign-verifier --gui
-Icon=application-pdf
+Icon=pdf-sign-verifier
 Terminal=false
 Categories=Office;Utility;XFCE;
 Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
 StartupNotify=true
 StartupWMClass=PDFSignVerifier
+SingleMainWindow=true
 EOF
 
 install -m 0644 "${ROOT}/README.md" "${STAGE}/usr/share/doc/${PKG_NAME}/README.md"
@@ -171,6 +181,12 @@ set -e
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database -q /usr/share/applications || true
 fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+fi
+if command -v update-icon-caches >/dev/null 2>&1; then
+  update-icon-caches /usr/share/icons/hicolor >/dev/null 2>&1 || true
+fi
 echo "PDF Sign Verifier installed."
 echo "  Run:  pdf-sign-verifier"
 echo "  Or open 'PDF Sign Verifier' from the application menu."
@@ -182,6 +198,9 @@ cat > "${STAGE}/DEBIAN/postrm" <<'EOF'
 set -e
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
 fi
 EOF
 chmod 0755 "${STAGE}/DEBIAN/postrm"
