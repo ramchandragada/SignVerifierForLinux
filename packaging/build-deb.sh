@@ -103,6 +103,7 @@ pyinstaller \
   --hidden-import pdf_sign_verifier.batch \
   --hidden-import pdf_sign_verifier.irn_qr \
   --hidden-import webview \
+  --hidden-import gi \
   --collect-all webview \
   --add-data "${ROOT}/trust:trust" \
   --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
@@ -140,7 +141,7 @@ Icon=pdf-sign-verifier
 Terminal=false
 Categories=Office;Utility;XFCE;
 Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
-StartupNotify=true
+StartupNotify=false
 StartupWMClass=pdf-sign-verifier
 SingleMainWindow=true
 EOF
@@ -162,8 +163,8 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: libc6
-Recommends: fonts-liberation | fonts-dejavu-core, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0, wmctrl, xdotool
+Depends: libc6, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
+Recommends: fonts-liberation | fonts-dejavu-core, wmctrl, xdotool
 Maintainer: Ramchandra Gada <ramchandragada@users.noreply.github.com>
 Description: Verify PDF digital signatures (Indian DSC / Amazon NOC)
  Self-contained Linux tool to cryptographically verify PDF signatures

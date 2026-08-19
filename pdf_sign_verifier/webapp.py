@@ -2430,6 +2430,29 @@ def _stop_pid(pid: int) -> None:
         pass
 
 
+def _kill_locked_instance() -> None:
+    """Stop a leftover server that is holding the lock without a visible window."""
+    pid = _lock_pid()
+    _close_app_windows()
+    if pid and pid != os.getpid():
+        _stop_pid(pid)
+    try:
+        listing = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, errors="ignore")
+        me = os.getpid()
+        for line in listing.splitlines():
+            if "pdf-sign-verifier" not in line:
+                continue
+            try:
+                other = int(line.split()[0])
+            except (ValueError, IndexError):
+                continue
+            if other != me:
+                _stop_pid(other)
+    except Exception:
+        pass
+    time.sleep(0.15)
+
+
 def _replace_stale_instance(host: str, port: int) -> bool:
     """If an old leftover server is still running after a .deb install, kill it."""
     saved_port = _read_instance_port(port)
@@ -2660,6 +2683,30 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> None:
             time.sleep(0.12)
 
 
+def _open_pywebview_window(url: str) -> bool:
+    """Native GTK/WebKit window — one dock icon, matches pdf-sign-verifier.desktop."""
+    try:
+        import webview
+    except Exception:
+        return False
+    os.environ.setdefault("GTK_APPLICATION_ID", "pdf-sign-verifier")
+    os.environ.setdefault("APP_ID", "pdf-sign-verifier")
+    try:
+        webview.create_window(
+            "PDF Sign Verifier",
+            url,
+            width=1400,
+            height=900,
+            min_size=(880, 620),
+            maximized=True,
+        )
+        webview.start()
+        return True
+    except Exception as exc:
+        print(f"Native window unavailable ({exc}).")
+        return False
+
+
 def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
     profile = _APP_CACHE
     profile.mkdir(parents=True, exist_ok=True)
@@ -2697,34 +2744,18 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
     return None
 
 
-def _open_webview(url: str) -> bool:
-    try:
-        import webview
-    except Exception:
-        return False
-    try:
-        webview.create_window(
-            "PDF Sign Verifier",
-            url,
-            width=1400,
-            height=900,
-            min_size=(880, 620),
-            maximized=True,
-        )
-        webview.start()
-        return True
-    except Exception:
-        return False
+def _serve_flask(host: str, port: int) -> None:
+    app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
     if not _try_acquire_instance_lock():
-        if _replace_stale_instance(host, port):
-            if not _try_acquire_instance_lock():
-                _activate_existing_instance(host, port)
-                return
-        else:
-            _activate_existing_instance(host, port)
+        if _app_window_open():
+            _raise_and_maximize_window()
+            return
+        _kill_locked_instance()
+        if not _try_acquire_instance_lock():
+            print("PDF Sign Verifier is already running but could not be started.")
             return
 
     chosen = _pick_port(host, port)
@@ -2734,19 +2765,22 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
     if chosen != port:
         print(f"Port {port} is busy — using {chosen} instead.")
     print(f"App: {url}")
+
+    if not open_browser:
+        print("Keep this terminal open while the app is running.")
+        _serve_flask(host, chosen)
+        return
+
+    threading.Thread(target=_serve_flask, args=(host, chosen), daemon=True).start()
+    _wait_for_server(url)
+
+    if _open_pywebview_window(url):
+        os._exit(0)
+
     print("Keep this terminal open while the app is running.")
-
-    if open_browser:
-        def _launch() -> None:
-            _wait_for_server(url)
-            if _open_chrome_app_window(url):
-                _maximize_when_ready()
-                _watch_window_and_exit()
-                return
-            webbrowser.open(url)
-
-        threading.Thread(target=_launch, daemon=True).start()
-
-    # Flask must stay on the main thread. If it runs as a daemon and the
-    # window process exits, the server dies and the UI shows connection refused.
-    app.run(host=host, port=chosen, debug=False, use_reloader=False, threaded=True)
+    if _open_chrome_app_window(url):
+        _maximize_when_ready()
+        _watch_window_and_exit()
+        return
+    webbrowser.open(url)
+    _watch_window_and_exit()
