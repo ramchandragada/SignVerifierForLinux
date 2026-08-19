@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import uuid
 import webbrowser
 from pathlib import Path
 
@@ -1395,13 +1396,98 @@ PAGE = r"""
       wireButtons(data);
     }
 
+    function suggestPdfName(file, suffix) {
+      const base = String(file && file.name ? file.name : 'document').replace(/\.pdf$/i, '');
+      return base + suffix;
+    }
+
+    async function choosePdfSavePath(suggestedName) {
+      if (typeof window.showSaveFilePicker !== 'function') return null;
+      return window.showSaveFilePicker({
+        suggestedName,
+        types: [{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }],
+      });
+    }
+
+    function showManualSaveLink(url, name) {
+      let bar = document.getElementById('manualSaveBar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'manualSaveBar';
+        bar.className = 'card';
+        result.insertAdjacentElement('afterbegin', bar);
+      }
+      bar.innerHTML = `<p><strong>Save this file:</strong> <a href="${url}" download="${esc(name)}">${esc(name)}</a>. If no window appeared, click the link or right-click and choose Save.</p>`;
+    }
+
+    async function savePdfBlob(blob, suggestedName, handle) {
+      if (handle) {
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return handle.name || suggestedName;
+      }
+      if (typeof window.showSaveFilePicker === 'function') {
+        const picked = await window.showSaveFilePicker({
+          suggestedName,
+          types: [{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }],
+        });
+        const writable = await picked.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return picked.name || suggestedName;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = suggestedName;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      a.remove();
+      try {
+        const prepBody = new FormData();
+        prepBody.append('file', blob, suggestedName);
+        prepBody.append('name', suggestedName);
+        const prep = await fetch('/api/prepare-download', { method: 'POST', body: prepBody });
+        const info = await prep.json().catch(() => ({}));
+        if (prep.ok && info.url) {
+          let frame = document.getElementById('downloadFrame');
+          if (!frame) {
+            frame = document.createElement('iframe');
+            frame.id = 'downloadFrame';
+            frame.setAttribute('hidden', '');
+            document.body.appendChild(frame);
+          }
+          frame.src = info.url;
+          showManualSaveLink(info.url, suggestedName);
+          return suggestedName;
+        }
+      } catch (err) {
+        /* keep blob link below */
+      }
+      showManualSaveLink(url, suggestedName);
+      return suggestedName;
+    }
+
+    result.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn || btn.disabled) return;
+      const action = btn.getAttribute('data-action');
+      if (action === 'export-verified') {
+        e.preventDefault();
+        exportVerifiedNoc();
+      } else if (action === 'download-report') {
+        e.preventDefault();
+        downloadReport();
+      } else if (action === 'fill-verify') {
+        e.preventDefault();
+        fillAndVerify();
+      }
+    });
+
     function wireButtons(data) {
-      const exportBtn = document.getElementById('exportBtn');
-      if (exportBtn) exportBtn.addEventListener('click', exportVerifiedNoc);
-      const reportBtn = document.getElementById('reportBtn');
-      if (reportBtn) reportBtn.addEventListener('click', downloadReport);
-      const fillBtn = document.getElementById('fillVerifyBtn');
-      if (fillBtn) fillBtn.addEventListener('click', fillAndVerify);
       const dynMs1 = document.querySelector('[data-noc-field="ms_name"]');
       const dynMs2 = document.querySelector('[data-noc-field="ms_name_2"]');
       if (dynMs1 && dynMs2 && !dynMs2.disabled) {
@@ -1465,13 +1551,16 @@ PAGE = r"""
           ${inputs}
           ${locked ? '' : `
           <div class="actions" style="justify-content:flex-start">
-            <button type="button" class="success" id="fillVerifyBtn">Fill &amp; Verify signature</button>
+            <button type="button" class="success" data-action="fill-verify">Fill &amp; Verify signature</button>
           </div>`}
         </div>`;
     }
 
     async function fillAndVerify() {
-      if (!lastFile) return;
+      if (!lastFile) {
+        alert('No PDF is loaded. Choose a blank signed NOC first.');
+        return;
+      }
       const fields = [...document.querySelectorAll('[data-noc-field]')];
       const values = {};
       for (const el of fields) {
@@ -1494,7 +1583,7 @@ PAGE = r"""
         alert('Please fill: ' + missing.join(', '));
         return;
       }
-      const btn = document.getElementById('fillVerifyBtn');
+      const btn = document.querySelector('[data-action="fill-verify"]');
       if (btn) { btn.disabled = true; btn.textContent = 'Filling & verifying…'; }
       const body = new FormData();
       body.append('pdf', lastFile);
@@ -1507,15 +1596,14 @@ PAGE = r"""
           const bin = atob(data.filled_pdf_base64);
           const bytes = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          const filledName = data.filled_file_name || lastFile.name.replace(/\\.pdf$/i, '') + '_filled.pdf';
+          const filledName = data.filled_file_name || suggestPdfName(lastFile, '_filled.pdf');
           lastFile = new File([bytes], filledName, { type: 'application/pdf' });
           fileMeta.textContent = `Filled: ${filledName} (${Math.round(lastFile.size/1024)} KB)`;
-          // Offer immediate download of filled signed NOC
-          const url = URL.createObjectURL(lastFile);
-          const a = document.createElement('a');
-          a.href = url; a.download = filledName;
-          document.body.appendChild(a); a.click(); a.remove();
-          URL.revokeObjectURL(url);
+          try {
+            await savePdfBlob(lastFile, filledName, null);
+          } catch (saveErr) {
+            if (!(saveErr && saveErr.name === 'AbortError')) throw saveErr;
+          }
         }
         renderAll(data);
         if (data.overall === 'UNSIGNED' && data.source_overall === 'UNSIGNED') {
@@ -1528,9 +1616,19 @@ PAGE = r"""
     }
 
     async function exportVerifiedNoc() {
-      if (!lastFile) return;
-      const btn = document.getElementById('exportBtn');
-      if (btn) { btn.disabled = true; btn.textContent = 'Creating verified NOC…'; }
+      if (!lastFile) {
+        alert('No PDF is loaded. Choose a PDF first, then save.');
+        return;
+      }
+      const suggested = suggestPdfName(lastFile, '_Signature_valid.pdf');
+      let handle = null;
+      try {
+        handle = await choosePdfSavePath(suggested);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+      const btn = document.querySelector('[data-action="export-verified"]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Creating verified PDF…'; }
       const body = new FormData();
       body.append('pdf', lastFile);
       try {
@@ -1542,22 +1640,30 @@ PAGE = r"""
         const blob = await res.blob();
         const disposition = res.headers.get('Content-Disposition') || '';
         const match = /filename="?([^"]+)"?/.exec(disposition);
-        const name = match?.[1] || lastFile.name.replace(/\\.pdf$/i, '') + '_Signature_valid.pdf';
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = name;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
+        const name = match && match[1] ? match[1] : suggested;
+        const saved = await savePdfBlob(blob, name, handle);
+        fileMeta.textContent = 'Saved: ' + saved;
       } catch (err) {
-        alert(err.message);
+        if (err && err.name === 'AbortError') return;
+        alert(err.message || String(err));
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Save verified NOC (green Signature valid)'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Save verified PDF (green Signature valid)'; }
       }
     }
 
     async function downloadReport() {
-      if (!lastFile) return;
-      const btn = document.getElementById('reportBtn');
+      if (!lastFile) {
+        alert('No PDF is loaded. Choose a PDF first, then save the report.');
+        return;
+      }
+      const suggested = suggestPdfName(lastFile, '_verification_report.pdf');
+      let handle = null;
+      try {
+        handle = await choosePdfSavePath(suggested);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+      const btn = document.querySelector('[data-action="download-report"]');
       if (btn) { btn.disabled = true; btn.textContent = 'Creating report…'; }
       const body = new FormData();
       body.append('pdf', lastFile);
@@ -1570,14 +1676,12 @@ PAGE = r"""
         const blob = await res.blob();
         const disposition = res.headers.get('Content-Disposition') || '';
         const match = /filename="?([^"]+)"?/.exec(disposition);
-        const name = match?.[1] || 'verification_report.pdf';
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = name;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
+        const name = match && match[1] ? match[1] : suggested;
+        const saved = await savePdfBlob(blob, name, handle);
+        fileMeta.textContent = 'Saved: ' + saved;
       } catch (err) {
-        alert(err.message);
+        if (err && err.name === 'AbortError') return;
+        alert(err.message || String(err));
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Download verification report (audit only)'; }
       }
@@ -1604,8 +1708,8 @@ PAGE = r"""
               <p class="sub">Trust: ${esc(sig.trust_anchor || 'CCA India')}</p>
               <div class="note">${note}</div>
               <div class="actions" style="justify-content:flex-start;margin-top:0.85rem">
-                <button type="button" class="success" id="exportBtn">Save verified NOC (green Signature valid)</button>
-                <button type="button" class="secondary" id="reportBtn">Download audit report</button>
+                <button type="button" class="success" data-action="export-verified">Save verified PDF (green Signature valid)</button>
+                <button type="button" class="secondary" data-action="download-report">Download verification report (audit only)</button>
               </div>
             </div>
           </div>`;
@@ -2089,6 +2193,54 @@ def _is_visual_noc_export(path: Path) -> bool:
     except Exception:
         pass
     return False
+
+
+_PREPARED_DOWNLOADS: dict[str, tuple[bytes, str, float]] = {}
+
+
+def _safe_download_name(name: str) -> str:
+    raw = Path(name or "download.pdf").name
+    cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in " ._-+()")[:180].strip()
+    if not cleaned:
+        cleaned = "download.pdf"
+    if not cleaned.lower().endswith(".pdf"):
+        cleaned += ".pdf"
+    return cleaned
+
+
+def _purge_prepared_downloads() -> None:
+    now = time.time()
+    for token, item in list(_PREPARED_DOWNLOADS.items()):
+        if now - item[2] > 180:
+            _PREPARED_DOWNLOADS.pop(token, None)
+
+
+@app.post("/api/prepare-download")
+def api_prepare_download():
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"error": "No file to save"}), 400
+    _purge_prepared_downloads()
+    token = uuid.uuid4().hex
+    name = _safe_download_name(request.form.get("name") or upload.filename or "download.pdf")
+    _PREPARED_DOWNLOADS[token] = (upload.read(), name, time.time())
+    return jsonify({"url": f"/api/prepared-download/{token}", "name": name})
+
+
+@app.get("/api/prepared-download/<token>")
+def api_prepared_download(token: str):
+    item = _PREPARED_DOWNLOADS.pop(token, None)
+    if item is None:
+        return jsonify({"error": "Save link expired. Click the button again."}), 404
+    data, name, _ts = item
+    return Response(
+        data,
+        mimetype="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/api/export-verified-noc")
