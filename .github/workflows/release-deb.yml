@@ -13,15 +13,24 @@ permissions:
 jobs:
   release-deb:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install build dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq python3 python3-venv python3-pip dpkg-dev binutils \
-            fonts-liberation fonts-urw-base35 file
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30
+          sudo apt-get install -y -qq --no-install-recommends \
+            python3 python3-venv python3-pip dpkg-dev binutils \
+            fonts-liberation fonts-urw-base35 file \
+            gir1.2-gtk-3.0 libgtk-3-0 \
+            gir1.2-webkit2-4.0 libwebkit2gtk-4.0-37
 
       - name: Set version
         id: ver
@@ -31,6 +40,7 @@ jobs:
           echo "Building universal ${VERSION}"
 
       - name: Build universal .deb
+        timeout-minutes: 15
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
