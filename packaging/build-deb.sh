@@ -163,7 +163,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Depends: libc6
-Recommends: fonts-liberation | fonts-dejavu-core, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
+Recommends: fonts-liberation | fonts-dejavu-core, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0, wmctrl, xdotool
 Maintainer: Ramchandra Gada <ramchandragada@users.noreply.github.com>
 Description: Verify PDF digital signatures (Indian DSC / Amazon NOC)
  Self-contained Linux tool to cryptographically verify PDF signatures
