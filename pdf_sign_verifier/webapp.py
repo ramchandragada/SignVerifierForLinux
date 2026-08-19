@@ -1362,12 +1362,22 @@ PAGE = r"""
       const body = new FormData();
       body.append('pdf', file);
       try {
+        const ping = await fetch('/api/ping', { cache: 'no-store' }).catch(() => null);
+        if (!ping || !ping.ok) {
+          throw new Error(
+            'Backend is not running (Failed to fetch). Close every PDF Sign Verifier / Chrome app window, then start the app again from the menu.'
+          );
+        }
         const res = await fetch('/api/verify', { method: 'POST', body });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Verification failed');
         renderAll(data);
       } catch (err) {
-        result.innerHTML = `<div class="card"><span class="badge ERROR">ERROR</span><p>${esc(err.message)}</p></div>`;
+        const msg = String(err && err.message ? err.message : err);
+        const hint = /failed to fetch|networkerror|load failed/i.test(msg)
+          ? 'Backend is not running (Failed to fetch). Close every PDF Sign Verifier / Chrome app window, then start the app again from the menu.'
+          : msg;
+        result.innerHTML = `<div class="card"><span class="badge ERROR">ERROR</span><p>${esc(hint)}</p></div>`;
       } finally {
         browse.disabled = false;
       }
@@ -1620,7 +1630,11 @@ PAGE = r"""
           alert('Filled successfully, but the source blank PDF has no digital signature. Use the original Amazon-signed blank PDF for cryptographic verification.');
         }
       } catch (err) {
-        alert(err.message);
+        const msg = String(err && err.message ? err.message : err);
+        const hint = /failed to fetch|networkerror|load failed/i.test(msg)
+          ? 'Backend is not running (Failed to fetch). Close every PDF Sign Verifier / Chrome app window, then start the app again from the menu.'
+          : msg;
+        alert(hint);
         if (btn) { btn.disabled = false; btn.textContent = 'Fill & Verify signature'; }
       }
     }
@@ -1999,6 +2013,11 @@ def home():
         root_count=root_count,
         inter_count=inter_count,
     )
+
+
+@app.get("/api/ping")
+def api_ping():
+    return jsonify({"ok": True, "version": _effective_app_version()})
 
 
 @app.get("/api/app-update/status")
@@ -2617,24 +2636,43 @@ def _relaunch_and_exit() -> None:
     os._exit(0)
 
 
-def _watch_window_and_exit() -> None:
-    """Quit the backend when the user closes the app window (otherwise the old build stays alive)."""
-    appeared = False
-    for _ in range(50):
-        if _app_window_open():
-            appeared = True
+def _chrome_profile_running() -> bool:
+    """True when our Chrome --app profile process is still alive."""
+    try:
+        listing = subprocess.check_output(["ps", "-eo", "args"], text=True, errors="ignore")
+    except Exception:
+        return False
+    marker = str(_APP_CACHE)
+    return any(
+        marker in line and "--app=" in line
+        for line in listing.splitlines()
+    )
+
+
+def _watch_window_and_exit(chrome: subprocess.Popen | None = None) -> None:
+    """Keep the Flask backend alive until the UI process/window is gone.
+
+    Earlier builds returned after ~10s when the window class could not be
+    detected. That killed the daemon Flask thread while Chrome stayed open,
+    which produced 'Failed to fetch' on every workflow.
+    """
+    # Give the UI a moment to appear.
+    for _ in range(40):
+        if (chrome and chrome.poll() is None) or _app_window_open() or _chrome_profile_running():
             break
-        time.sleep(0.2)
-    if not appeared:
-        return
+        time.sleep(0.25)
+
     missing = 0
     while True:
         time.sleep(0.8)
-        if _app_window_open():
+        chrome_alive = bool(chrome and chrome.poll() is None)
+        profile_alive = _chrome_profile_running()
+        window_alive = _app_window_open()
+        if chrome_alive or profile_alive or window_alive:
             missing = 0
             continue
         missing += 1
-        if missing >= 4:
+        if missing >= 5:
             os._exit(0)
 
 
@@ -2925,19 +2963,26 @@ def _start_app(host: str, port: int, open_browser: bool) -> None:
         _serve_flask(host, chosen)
         return
 
-    threading.Thread(target=_serve_flask, args=(host, chosen), daemon=True).start()
+    # Non-daemon so the server cannot die while the UI is still open.
+    flask_thread = threading.Thread(
+        target=_serve_flask, args=(host, chosen), name="pdf-sign-verifier-flask", daemon=False
+    )
+    flask_thread.start()
     _wait_for_server(url)
 
     if _open_pywebview_window(url):
         os._exit(0)
 
     print("Keep this terminal open while the app is running.")
-    if _open_chrome_app_window(url):
+    chrome = _open_chrome_app_window(url)
+    if chrome:
         _maximize_when_ready()
-        _watch_window_and_exit()
+        _watch_window_and_exit(chrome)
         return
     webbrowser.open(url)
-    _watch_window_and_exit()
+    _watch_window_and_exit(None)
+    # Last resort: never drop the backend while this process is the owner.
+    flask_thread.join()
 
 
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
