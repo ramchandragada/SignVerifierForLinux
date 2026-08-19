@@ -141,7 +141,7 @@ Terminal=false
 Categories=Office;Utility;XFCE;
 Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
 StartupNotify=true
-StartupWMClass=PDFSignVerifier
+StartupWMClass=pdf-sign-verifier
 SingleMainWindow=true
 EOF
 

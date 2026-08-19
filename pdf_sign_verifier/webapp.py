@@ -2292,7 +2292,9 @@ def api_verification_report():
 _APP_CACHE = Path.home() / ".cache" / "pdf-sign-verifier-app"
 _STATE_DIR = Path.home() / ".cache" / "pdf-sign-verifier"
 _INSTANCE_LOCK_FP = None
-_WM_CLASS = "PDFSignVerifier"
+# Must match Icon= and StartupWMClass= in pdf-sign-verifier.desktop so the
+# running window groups onto the pinned launcher instead of a second gear icon.
+_WM_CLASS = "pdf-sign-verifier"
 
 
 def _try_acquire_instance_lock() -> bool:
@@ -2332,7 +2334,64 @@ def _run_quiet(args: list[str]) -> bool:
     return result.returncode == 0
 
 
+def _window_ids_for_app() -> list[str]:
+    ids: list[str] = []
+    if shutil.which("xdotool"):
+        for args in (
+            ["xdotool", "search", "--name", "PDF Sign Verifier"],
+            ["xdotool", "search", "--name", "Sign Verifier"],
+            ["xdotool", "search", "--class", _WM_CLASS],
+            ["xdotool", "search", "--class", "PDFSignVerifier"],
+        ):
+            found = subprocess.run(args, capture_output=True, text=True)
+            if found.returncode == 0:
+                ids.extend(found.stdout.split())
+    if shutil.which("wmctrl"):
+        listing = subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True)
+        for line in listing.stdout.splitlines():
+            low = line.lower()
+            if "pdf sign verifier" in low or "pdf-sign-verifier" in low or "pdfsignverifier" in low:
+                ids.append(line.split()[0])
+    seen: set[str] = set()
+    unique: list[str] = []
+    for wid in ids:
+        if wid and wid not in seen:
+            seen.add(wid)
+            unique.append(wid)
+    return unique
+
+
+def _stamp_window_identity(wid: str) -> None:
+    """Force the running window to use this app's desktop class and icon grouping."""
+    if wid.startswith("0x") or wid.startswith("0X"):
+        _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, str(int(wid, 16))])
+        _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", _WM_CLASS])
+        _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,maximized_vert,maximized_horz"])
+        return
+    _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, wid])
+    _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", _WM_CLASS])
+    hex_id = hex(int(wid)) if wid.isdigit() else wid
+    _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,maximized_vert,maximized_horz"])
+
+
+def _adopt_running_window(timeout: float = 8.0) -> bool:
+    deadline = time.time() + timeout
+    stamped = False
+    while time.time() < deadline:
+        wids = _window_ids_for_app()
+        for wid in wids:
+            _stamp_window_identity(wid)
+            stamped = True
+        if stamped:
+            _raise_and_maximize_window()
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def _app_window_open() -> bool:
+    if _window_ids_for_app():
+        return True
     if shutil.which("wmctrl"):
         try:
             listing = subprocess.check_output(["wmctrl", "-lx"], text=True, errors="ignore")
@@ -2376,12 +2435,7 @@ def _raise_and_maximize_window() -> bool:
 
 
 def _maximize_when_ready(timeout: float = 8.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if _app_window_open():
-            _raise_and_maximize_window()
-            return
-        time.sleep(0.2)
+    _adopt_running_window(timeout=timeout)
 
 
 def _activate_existing_instance(host: str, preferred_port: int) -> None:
@@ -2444,6 +2498,9 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
         "microsoft-edge-stable",
         "brave-browser",
     )
+    env = os.environ.copy()
+    env["CHROME_DESKTOP"] = "pdf-sign-verifier.desktop"
+    env["GOOGLE_CHROME_DESKTOP"] = "pdf-sign-verifier.desktop"
     for name in binaries:
         path = shutil.which(name)
         if not path:
@@ -2451,16 +2508,17 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
         return subprocess.Popen(
             [
                 path,
+                f"--class={_WM_CLASS}",
                 f"--app={url}",
                 f"--user-data-dir={profile}",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "--class=PDFSignVerifier",
                 "--start-maximized",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=env,
         )
     return None
 
