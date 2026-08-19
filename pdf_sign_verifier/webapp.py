@@ -691,6 +691,7 @@ PAGE = r"""
       gap: 0.9rem;
       align-items: stretch;
     }
+    .work-grid .drop { padding: 1.6rem 1.15rem 1.25rem; margin-top: 0; }
     .work-guide {
       background: rgba(255,255,255,0.9);
       border: 1px solid rgba(13,35,72,0.08);
