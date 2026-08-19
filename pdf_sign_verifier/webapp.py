@@ -1947,7 +1947,10 @@ def home():
         root_count = 0
         inter_count = 0
     return render_template_string(
-        PAGE, version=__version__, root_count=root_count, inter_count=inter_count
+        PAGE,
+        version=_effective_app_version(),
+        root_count=root_count,
+        inter_count=inter_count,
     )
 
 
@@ -1957,11 +1960,12 @@ def api_app_update_status():
         latest = _latest_deb_release()
     except Exception as exc:
         return jsonify({"error": f"Could not check latest release: {exc}"}), 500
-    current = _parse_version_tuple(__version__)
+    current = _parse_version_tuple(_effective_app_version())
     latest_v = _parse_version_tuple(latest["version"])
     return jsonify(
         {
-            "current_version": __version__,
+            "current_version": _effective_app_version(),
+            "bundled_version": __version__,
             "latest_version": latest["version"],
             "update_available": latest_v > current,
             "deb_ready": UPDATE_DEB_PATH.is_file(),
@@ -1976,14 +1980,14 @@ def api_app_update_download():
     except Exception as exc:
         return jsonify({"error": f"Could not check latest release: {exc}"}), 500
 
-    current = _parse_version_tuple(__version__)
+    current = _parse_version_tuple(_effective_app_version())
     latest_v = _parse_version_tuple(latest["version"])
     if latest_v <= current:
         return jsonify(
             {
                 "downloaded": False,
                 "update_available": False,
-                "message": f"Already up to date ({__version__}).",
+                "message": f"Already up to date ({_effective_app_version()}).",
                 "latest_version": latest["version"],
             }
         )
@@ -2374,6 +2378,22 @@ def _installed_deb_version() -> str:
         return ""
 
 
+def _effective_app_version() -> str:
+    """Prefer the installed .deb version when it is newer than the bundled stamp."""
+    disk = _installed_deb_version()
+    if disk and _parse_version_tuple(disk) > _parse_version_tuple(__version__):
+        return disk
+    return __version__
+
+
+def _server_responding(host: str, port: int) -> bool:
+    try:
+        urllib.request.urlopen(f"http://{host}:{port}/api/app-update/status", timeout=0.8)
+        return True
+    except Exception:
+        return False
+
+
 def _lock_pid() -> int | None:
     try:
         text = (_STATE_DIR / "instance.lock").read_text(encoding="utf-8").strip()
@@ -2463,20 +2483,6 @@ def _kill_locked_instance() -> None:
     _kill_orphan_browser_processes()
     if pid and pid != os.getpid():
         _stop_pid(pid)
-    try:
-        listing = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, errors="ignore")
-        me = os.getpid()
-        for line in listing.splitlines():
-            if "pdf-sign-verifier" not in line:
-                continue
-            try:
-                other = int(line.split()[0])
-            except (ValueError, IndexError):
-                continue
-            if other != me:
-                _stop_pid(other)
-    except Exception:
-        pass
     time.sleep(0.25)
 
 
@@ -2804,26 +2810,31 @@ def _serve_flask(host: str, port: int) -> None:
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
-def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+def _focus_running_app(host: str, port: int, open_browser: bool) -> None:
+    """Bring an already-running instance to the front, opening the window if needed."""
+    saved_port = _read_instance_port(port)
+    if not _server_responding(host, saved_port):
+        return
+    url = f"http://{host}:{saved_port}/"
     if _app_window_open():
         _raise_and_maximize_window()
         return
-    _replace_stale_instance(host, port)
-    if not _app_window_open():
-        _kill_locked_instance()
-    if not _try_acquire_instance_lock():
-        if _app_window_open():
-            _raise_and_maximize_window()
-            return
-        _kill_locked_instance()
-        if not _try_acquire_instance_lock():
-            print("PDF Sign Verifier is already running but could not be started.")
-            return
+    if open_browser and _open_chrome_app_window(url):
+        _maximize_when_ready()
+        return
+    if open_browser:
+        webbrowser.open(url)
+        _maximize_when_ready()
 
+
+def _start_app(host: str, port: int, open_browser: bool) -> None:
+    """Primary instance: run Flask and open the UI."""
+    _close_app_windows()
+    _kill_orphan_browser_processes()
     chosen = _pick_port(host, port)
     _write_instance_port(chosen)
     url = f"http://{host}:{chosen}/"
-    print(f"PDF Sign Verifier {__version__}")
+    print(f"PDF Sign Verifier {_effective_app_version()}")
     if chosen != port:
         print(f"Port {port} is busy — using {chosen} instead.")
     print(f"App: {url}")
@@ -2846,3 +2857,27 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
         return
     webbrowser.open(url)
     _watch_window_and_exit()
+
+
+def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+    if _try_acquire_instance_lock():
+        _replace_stale_instance(host, port)
+        if _server_responding(host, _read_instance_port(port)):
+            _release_instance_lock()
+            _focus_running_app(host, port, open_browser)
+            return
+        _start_app(host, port, open_browser)
+        return
+
+    saved_port = _read_instance_port(port)
+    if _server_responding(host, saved_port):
+        _focus_running_app(host, port, open_browser)
+        return
+
+    _replace_stale_instance(host, port)
+    _kill_locked_instance()
+    if _try_acquire_instance_lock():
+        _start_app(host, port, open_browser)
+        return
+
+    print("PDF Sign Verifier is already running but could not be started.")
