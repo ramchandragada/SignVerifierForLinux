@@ -7,6 +7,6 @@ Path=/home/ramchandra/PDF Sign Verifier
 Icon=pdf-sign-verifier
 Terminal=false
 Categories=Office;Utility;
-StartupNotify=true
+StartupNotify=false
 StartupWMClass=pdf-sign-verifier
 SingleMainWindow=true
