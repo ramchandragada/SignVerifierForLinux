@@ -2430,10 +2430,29 @@ def _stop_pid(pid: int) -> None:
         pass
 
 
+def _kill_orphan_browser_processes() -> None:
+    """Drop headless Chrome profiles left after the window was closed."""
+    try:
+        listing = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, errors="ignore")
+    except Exception:
+        return
+    me = os.getpid()
+    for line in listing.splitlines():
+        if "pdf-sign-verifier-app" not in line or "--app=" not in line:
+            continue
+        try:
+            other = int(line.split()[0])
+        except (ValueError, IndexError):
+            continue
+        if other != me:
+            _stop_pid(other)
+
+
 def _kill_locked_instance() -> None:
     """Stop a leftover server that is holding the lock without a visible window."""
     pid = _lock_pid()
     _close_app_windows()
+    _kill_orphan_browser_processes()
     if pid and pid != os.getpid():
         _stop_pid(pid)
     try:
@@ -2450,7 +2469,7 @@ def _kill_locked_instance() -> None:
                 _stop_pid(other)
     except Exception:
         pass
-    time.sleep(0.15)
+    time.sleep(0.25)
 
 
 def _replace_stale_instance(host: str, port: int) -> bool:
@@ -2587,6 +2606,7 @@ def _adopt_running_window(timeout: float = 8.0) -> bool:
 
 
 def _app_window_open() -> bool:
+    """True only when a real window exists — not a leftover Chrome process."""
     if _window_ids_for_app():
         return True
     if shutil.which("wmctrl"):
@@ -2606,14 +2626,7 @@ def _app_window_open() -> bool:
         )
         if found.returncode == 0:
             return True
-    try:
-        listing = subprocess.check_output(["ps", "-eo", "args"], text=True, errors="ignore")
-        return any(
-            "pdf-sign-verifier-app" in line and "--app=" in line
-            for line in listing.splitlines()
-        )
-    except Exception:
-        return False
+    return False
 
 
 def _raise_and_maximize_window() -> bool:
@@ -2683,14 +2696,33 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> None:
             time.sleep(0.12)
 
 
+def _configure_native_window_identity() -> None:
+    """Make GTK/WebKit advertise pdf-sign-verifier so Cinnamon groups one dock icon."""
+    os.environ.setdefault("GTK_APPLICATION_ID", _WM_CLASS)
+    os.environ.setdefault("APP_ID", _WM_CLASS)
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import GLib, Gdk
+
+        GLib.set_application_name("PDF Sign Verifier")
+        GLib.set_prgname(_WM_CLASS)
+        if hasattr(Gdk, "set_program_class"):
+            Gdk.set_program_class(_WM_CLASS)
+    except Exception:
+        pass
+
+
 def _open_pywebview_window(url: str) -> bool:
     """Native GTK/WebKit window — one dock icon, matches pdf-sign-verifier.desktop."""
     try:
+        _configure_native_window_identity()
         import webview
     except Exception:
         return False
-    os.environ.setdefault("GTK_APPLICATION_ID", "pdf-sign-verifier")
-    os.environ.setdefault("APP_ID", "pdf-sign-verifier")
+    threading.Thread(target=_adopt_running_window, kwargs={"timeout": 12.0}, daemon=True).start()
     try:
         webview.create_window(
             "PDF Sign Verifier",
@@ -2700,7 +2732,7 @@ def _open_pywebview_window(url: str) -> bool:
             min_size=(880, 620),
             maximized=True,
         )
-        webview.start()
+        webview.start(gui="gtk")
         return True
     except Exception as exc:
         print(f"Native window unavailable ({exc}).")
@@ -2749,6 +2781,12 @@ def _serve_flask(host: str, port: int) -> None:
 
 
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+    if _app_window_open():
+        _raise_and_maximize_window()
+        return
+    _replace_stale_instance(host, port)
+    if not _app_window_open():
+        _kill_locked_instance()
     if not _try_acquire_instance_lock():
         if _app_window_open():
             _raise_and_maximize_window()

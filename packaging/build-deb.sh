@@ -104,6 +104,9 @@ pyinstaller \
   --hidden-import pdf_sign_verifier.irn_qr \
   --hidden-import webview \
   --hidden-import gi \
+  --hidden-import gi.repository.Gdk \
+  --hidden-import gi.repository.GLib \
+  --hidden-import gi.repository.Gtk \
   --collect-all webview \
   --add-data "${ROOT}/trust:trust" \
   --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
@@ -114,10 +117,46 @@ pyinstaller \
 cp -a "${DIST_DIR}/pyi/pdf-sign-verifier/." "${STAGE}/opt/${PKG_NAME}/"
 chmod 0755 "${STAGE}/opt/${PKG_NAME}/pdf-sign-verifier"
 
-# Launcher (thin wrapper)
+# Launcher — clears stale backends before the frozen binary starts
 cat > "${STAGE}/usr/bin/pdf-sign-verifier" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+APP_ID="pdf-sign-verifier"
+STATE_DIR="${HOME}/.cache/pdf-sign-verifier"
+LOCK_FILE="${STATE_DIR}/instance.lock"
+
+_window_visible() {
+  if command -v wmctrl >/dev/null 2>&1; then
+    wmctrl -lx 2>/dev/null | grep -Eiq "(${APP_ID}|pdf sign verifier)" && return 0
+  fi
+  if command -v xdotool >/dev/null 2>&1; then
+    xdotool search --class "${APP_ID}" >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+_cleanup_stale() {
+  _window_visible && return 0
+  if [[ -f "${LOCK_FILE}" ]]; then
+    pid="$(tr -d ' \n\r' < "${LOCK_FILE}" 2>/dev/null || true)"
+    if [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" 2>/dev/null || true
+      for _ in $(seq 1 25); do
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 0.1
+      done
+      kill -9 "${pid}" 2>/dev/null || true
+    fi
+  fi
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "pdf-sign-verifier-app.*--app=" 2>/dev/null || true
+  fi
+}
+
+_cleanup_stale
+export GTK_APPLICATION_ID="${APP_ID}"
+export APP_ID="${APP_ID}"
 exec /opt/pdf-sign-verifier/pdf-sign-verifier "$@"
 EOF
 chmod 0755 "${STAGE}/usr/bin/pdf-sign-verifier"
