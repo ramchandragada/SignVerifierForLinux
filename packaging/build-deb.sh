@@ -32,7 +32,10 @@ if [[ "${1:-}" != "--local" ]]; then
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
       apt-get install -y -qq python3 python3-venv python3-pip dpkg-dev binutils \
-        fonts-liberation fonts-urw-base35 file >/dev/null
+        fonts-liberation fonts-urw-base35 file \
+        libgirepository1.0-dev gcc python3-dev libcairo2-dev pkg-config \
+        gobject-introspection gir1.2-gtk-3.0 libgtk-3-dev \
+        gir1.2-webkit2-4.0 >/dev/null
       cp -a /src /build
       cd /build
       rm -rf /build/dist/stage /build/dist/*.deb /build/build /build/dist/pyi
@@ -61,6 +64,20 @@ cp -n /usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf "${ROOT}/packa
 cp -n /usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
 cp -n /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
 cp -n /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
+
+# PyGObject is required so pywebview can open a native GTK window in the frozen app.
+echo "==> Installing GTK/WebKit build libraries..."
+export DEBIAN_FRONTEND=noninteractive
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get install -y -qq --no-install-recommends \
+    libgirepository1.0-dev gcc python3-dev libcairo2-dev pkg-config \
+    gobject-introspection gir1.2-gtk-3.0 libgtk-3-dev \
+    gir1.2-webkit2-4.1 gir1.2-webkit2-4.0 2>/dev/null || \
+  apt-get install -y -qq --no-install-recommends \
+    libgirepository1.0-dev gcc python3-dev libcairo2-dev pkg-config \
+    gobject-introspection gir1.2-gtk-3.0 libgtk-3-dev \
+    gir1.2-webkit2-4.0 2>/dev/null || true
+fi
 
 echo "==> Creating build venv + installing deps + PyInstaller..."
 python3 -m venv "${DIST_DIR}/build-venv"
@@ -107,6 +124,9 @@ pyinstaller \
   --hidden-import gi.repository.Gdk \
   --hidden-import gi.repository.GLib \
   --hidden-import gi.repository.Gtk \
+  --hidden-import gi.repository.WebKit2 \
+  --hidden-import gi.repository.Soup \
+  --collect-all gi \
   --collect-all webview \
   --add-data "${ROOT}/trust:trust" \
   --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
@@ -202,7 +222,7 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: libc6, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
+Depends: libc6, libgtk-3-0, libgirepository-1.0-1, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
 Recommends: fonts-liberation | fonts-dejavu-core, wmctrl, xdotool
 Maintainer: Ramchandra Gada <ramchandragada@users.noreply.github.com>
 Description: Verify PDF digital signatures (Indian DSC / Amazon NOC)

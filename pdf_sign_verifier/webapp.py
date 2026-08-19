@@ -2704,6 +2704,17 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> None:
             time.sleep(0.12)
 
 
+def _gi_available() -> bool:
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        return True
+    except Exception:
+        return False
+
+
 def _configure_native_window_identity() -> None:
     """Make GTK/WebKit advertise pdf-sign-verifier so Cinnamon groups one dock icon."""
     os.environ.setdefault("GTK_APPLICATION_ID", _WM_CLASS)
@@ -2725,8 +2736,13 @@ def _configure_native_window_identity() -> None:
 
 def _open_pywebview_window(url: str) -> bool:
     """Native GTK/WebKit window — one dock icon, matches pdf-sign-verifier.desktop."""
+    if not _gi_available():
+        return False
     try:
         _configure_native_window_identity()
+        import logging
+
+        logging.getLogger("pywebview").setLevel(logging.ERROR)
         import webview
     except Exception:
         return False
