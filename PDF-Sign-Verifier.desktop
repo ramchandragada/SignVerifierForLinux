@@ -8,5 +8,5 @@ Icon=pdf-sign-verifier
 Terminal=false
 Categories=Office;Utility;
 StartupNotify=true
-StartupWMClass=PDFSignVerifier
+StartupWMClass=pdf-sign-verifier
 SingleMainWindow=true
