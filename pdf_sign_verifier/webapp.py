@@ -649,9 +649,95 @@ PAGE = r"""
       background: var(--accent-soft);
       color: var(--accent-deep);
     }
+    .work-hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: flex-start;
+      margin-bottom: 0.9rem;
+    }
+    .work-kicker {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 0.28rem;
+    }
+    .work-hero h2 {
+      margin: 0 0 0.28rem;
+      font-size: 1.38rem;
+      letter-spacing: -0.04em;
+    }
+    .work-hero p { margin: 0; color: var(--muted); font-size: 0.92rem; max-width: 42rem; line-height: 1.5; }
+    .work-facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.7rem;
+      margin-bottom: 0.9rem;
+    }
+    .work-fact {
+      background: rgba(255,255,255,0.82);
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 14px;
+      padding: 0.75rem 0.85rem;
+      box-shadow: 0 8px 22px rgba(7,21,41,0.04);
+    }
+    .work-fact b { display: block; font-size: 0.88rem; margin-bottom: 0.18rem; }
+    .work-fact span { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+    .work-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 0.9rem;
+      align-items: stretch;
+    }
+    .work-grid .drop { padding: 1.6rem 1.15rem 1.25rem; margin-top: 0; }
+    .work-guide {
+      background: rgba(255,255,255,0.9);
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 18px;
+      padding: 1.1rem 1.15rem;
+      box-shadow: 0 10px 28px rgba(7,21,41,0.05);
+    }
+    .work-guide h3 { margin: 0 0 0.7rem; font-size: 0.98rem; }
+    .work-accept {
+      margin-top: 0.85rem;
+      padding: 0.75rem 0.8rem;
+      border-radius: 12px;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+    .work-switch {
+      margin-top: 1.15rem;
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 18px;
+      padding: 1.05rem 1.1rem 1.15rem;
+    }
+    .work-switch-head h3 { margin: 0 0 0.2rem; font-size: 1rem; }
+    .work-switch-head p { margin: 0 0 0.85rem; color: var(--muted); font-size: 0.86rem; }
+    .switch-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .switch-card {
+      background: #fff;
+      border: 1px solid rgba(13,35,72,0.08);
+      border-radius: 16px;
+      padding: 0.95rem 1rem;
+      text-align: left;
+      box-shadow: 0 8px 20px rgba(7,21,41,0.04);
+    }
+    .switch-card h4 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+    .switch-card p { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
+    .switch-card .drop-toolbar { margin-top: 0; justify-content: flex-start; }
+    .switch-card .choose-pdf-btn { width: auto; margin-top: 0; padding: 0.55rem 0.9rem; font-size: 0.82rem; }
     @media (max-width: 900px) {
-      .mode-grid, .stat-row, .insight-grid, .tools-grid { grid-template-columns: 1fr; }
-      .welcome { flex-direction: column; align-items: flex-start; }
+      .mode-grid, .stat-row, .insight-grid, .tools-grid, .work-grid, .work-facts, .switch-grid { grid-template-columns: 1fr; }
+      .welcome, .work-hero { flex-direction: column; align-items: flex-start; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -669,7 +755,7 @@ PAGE = r"""
         <strong>PDF Sign Verifier</strong>
         <span>Indian DSC · CCA trust · Linux</span>
       </div>
-      <button type="button" class="titlebar-back" id="backBtn" hidden>← Back to options</button>
+      <button type="button" class="titlebar-back" id="homeBtn" hidden>Home</button>
       <div class="titlebar-ver">{{ version }}</div>
     </header>
     <div class="app-body">
@@ -739,6 +825,16 @@ PAGE = r"""
     </div>
 
     <div id="workArea" hidden>
+      <div class="work-hero">
+        <div>
+          <div class="work-kicker" id="workKicker">Workflow</div>
+          <h2 id="workTitle">Verify signed PDF</h2>
+          <p id="workLead">Drop the original digitally signed file. This screen stays useful while you work — switch workflows below without going home.</p>
+        </div>
+        <button type="button" class="secondary" id="homeBtnPage">Home</button>
+      </div>
+      <div class="work-facts" id="workFacts"></div>
+      <div class="work-grid">
       <div class="drop" id="drop">
         <div class="drop-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -757,8 +853,22 @@ PAGE = r"""
         <input id="file" type="file" accept="application/pdf,.pdf" />
         <div class="meta" id="fileMeta">No file selected</div>
       </div>
+      <aside class="work-guide">
+        <h3>How this workflow runs</h3>
+        <ol class="steps" id="guideSteps"></ol>
+        <div class="work-accept" id="guideAccept"></div>
+      </aside>
+      </div>
 
       <div id="result"></div>
+
+      <section class="work-switch">
+        <div class="work-switch-head">
+          <h3>Need a different workflow?</h3>
+          <p>The other two options stay on this screen so you can switch without going back to Home.</p>
+        </div>
+        <div class="switch-grid" id="switchGrid"></div>
+      </section>
     </div>
 
     <div id="homeTools" class="tools-grid">
@@ -807,7 +917,8 @@ PAGE = r"""
     const fileInput = document.getElementById('file');
     const browse = document.getElementById('browse');
     const clearBtn = document.getElementById('clear');
-    const backBtn = document.getElementById('backBtn');
+    const homeBtn = document.getElementById('homeBtn');
+    const homeBtnPage = document.getElementById('homeBtnPage');
     const fileMeta = document.getElementById('fileMeta');
     const result = document.getElementById('result');
     const dropLabel = document.getElementById('dropLabel');
@@ -866,53 +977,124 @@ PAGE = r"""
       return `<select id="${id}" data-noc-field="${esc(fieldName)}" ${dis}>${placeholder}${opts}</select>`;
     }
 
-    document.getElementById('modeVerify').addEventListener('click', () => enterMode('verify'));
-    document.getElementById('modeBlank').addEventListener('click', () => enterMode('blank'));
-    document.getElementById('modeBsa').addEventListener('click', () => enterMode('bsa'));
-    document.querySelectorAll('.choose-pdf-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        enterMode(btn.getAttribute('data-mode'), true);
-      });
-    });
+    const MODE_INFO = {
+      verify: {
+        kicker: 'Workflow 1 of 3',
+        title: 'Verify Pre-filled Signed NOC',
+        lead: 'Use this when seller details are already on the NOC. We check the original PKCS#7 / CMS signature against CCA India trust — then you can save an Adobe-style green tick.',
+        dropLabel: 'Drop the pre-filled signed NOC / any signed PDF',
+        dropHint: 'Signature is verified immediately. Select multiple files to batch-check a folder of NOCs.',
+        multiple: true,
+        facts: [
+          ['Original signed PDF', 'Use the digitally signed file, not a print, scan, or screenshot.'],
+          ['Batch ready', 'Choose several PDFs at once to verify a stack of pre-filled NOCs.'],
+          ['Green tick export', 'Crypto-verified files can be saved with a Signature valid stamp.'],
+        ],
+        steps: [
+          'Choose or drop the original signed PDF (PKCS#7 must still be inside the file).',
+          'We check document hash, signer certificate, and the CCA India chain.',
+          'Read the result: VALID, UNSIGNED, or a trust/integrity failure.',
+          'If verified, export the Adobe-style green tick copy for upload.',
+        ],
+        accept: 'Best for Amazon NOCs that already have merchant name, date, and address filled in. BSA agreements belong in the BSA workflow.',
+      },
+      blank: {
+        kicker: 'Workflow 2 of 3',
+        title: 'Fill Blank Signed NOC',
+        lead: 'Use this when the NOC still has dotted lines. Type seller name, date, and address first — filling does not create a signature — then we verify the original DSC.',
+        dropLabel: 'Drop the blank signed NOC',
+        dropHint: 'We detect blank fields so you can add seller name, date, and address — then verify.',
+        multiple: false,
+        facts: [
+          ['Fill first', 'Merchant name, date, branch, and address go on the dotted lines.'],
+          ['Address is manual', 'Type the merchant address each time. It is not copied from Branch.'],
+          ['Fill ≠ signature', 'Typing details does not sign the PDF. Crypto verify still needs the original DSC.'],
+        ],
+        steps: [
+          'Choose the original blank signed NOC (dotted placeholders still visible).',
+          'Enter seller / merchant details. Address stays a manual field.',
+          'Click Fill & Verify. Fields overlay the template; leftover dots are normal.',
+          'Check signature status of the source file. Filling never adds a digital signature.',
+        ],
+        accept: 'Best for Amazon NAX-style blanks. If the NOC is already filled, switch to Verify Pre-filled instead.',
+      },
+      bsa: {
+        kicker: 'Workflow 3 of 3',
+        title: 'Verify BSA Agreement',
+        lead: 'Amazon Business Solutions Agreement — signature check only. No form fill. Same CCA India cryptographic path as NOC verify.',
+        dropLabel: 'Drop the signed BSA agreement PDF',
+        dropHint: 'Amazon Business Solutions Agreement — digital signature verification only.',
+        multiple: false,
+        facts: [
+          ['No form fill', 'BSA is verify-only. There are no merchant dotted fields to type.'],
+          ['CCA chain', 'Signer certificate must chain to CCA India roots and licensed CAs.'],
+          ['Keep the original', 'A printed or Print-to-PDF copy will show UNSIGNED.'],
+        ],
+        steps: [
+          'Choose the original signed BSA PDF from Amazon.',
+          'We inspect PKCS#7 / CMS bytes and the signer certificate chain.',
+          'Review VALID vs UNSIGNED / untrusted on this screen.',
+          'Export a verified copy with the green Signature valid stamp if it passes.',
+        ],
+        accept: 'Use this for BSA agreements only. Pre-filled or blank Amazon NOCs have their own workflows on the cards below.',
+      },
+    };
+    const MODE_SWITCH = {
+      verify: [
+        { id: 'blank', title: 'Fill Blank Signed NOC', blurb: 'Dotted-line NOC. Add seller name, date, and address, then verify.' },
+        { id: 'bsa', title: 'Verify BSA Agreement', blurb: 'Business Solutions Agreement. Signature check only — no fill.' },
+      ],
+      blank: [
+        { id: 'verify', title: 'Verify Pre-filled Signed NOC', blurb: 'Details already filled. Drop the signed PDF and check the DSC.' },
+        { id: 'bsa', title: 'Verify BSA Agreement', blurb: 'Business Solutions Agreement. Signature check only — no fill.' },
+      ],
+      bsa: [
+        { id: 'verify', title: 'Verify Pre-filled Signed NOC', blurb: 'Details already filled. Drop the signed PDF and check the DSC.' },
+        { id: 'blank', title: 'Fill Blank Signed NOC', blurb: 'Dotted-line NOC. Add seller name, date, and address, then verify.' },
+      ],
+    };
 
-    function enterMode(mode, pickFile) {
-      currentMode = mode;
-      modeSelect.hidden = true;
-      workArea.hidden = false;
-      if (backBtn) backBtn.hidden = false;
-      const homeDash = document.getElementById('homeDash');
-      const homeInfo = document.getElementById('homeInfo');
-      const homeTools = document.getElementById('homeTools');
-      if (homeDash) homeDash.hidden = true;
-      if (homeInfo) homeInfo.hidden = true;
-      if (homeTools) homeTools.hidden = true;
-      result.innerHTML = '';
-      fileInput.value = '';
-      lastFile = null;
-      clearBtn.hidden = true;
-      fileMeta.textContent = 'No file selected';
-      if (mode === 'verify') {
-        dropLabel.textContent = 'Drop the pre-filled signed NOC / any signed PDF';
-        dropHint.textContent = 'Signature will be verified immediately. For batch, select multiple files.';
-        fileInput.multiple = true;
-      } else if (mode === 'bsa') {
-        dropLabel.textContent = 'Drop the signed BSA agreement PDF';
-        dropHint.textContent = 'Amazon Business Solutions Agreement — digital signature verification only.';
-        fileInput.multiple = false;
-      } else {
-        dropLabel.textContent = 'Drop the blank signed NOC';
-        dropHint.textContent = 'We\u2019ll detect blank fields so you can add seller name, date, address — then verify.';
-        fileInput.multiple = false;
+    function renderWorkChrome(mode) {
+      const info = MODE_INFO[mode] || MODE_INFO.verify;
+      const kicker = document.getElementById('workKicker');
+      const title = document.getElementById('workTitle');
+      const lead = document.getElementById('workLead');
+      const facts = document.getElementById('workFacts');
+      const steps = document.getElementById('guideSteps');
+      const accept = document.getElementById('guideAccept');
+      const grid = document.getElementById('switchGrid');
+      if (kicker) kicker.textContent = info.kicker;
+      if (title) title.textContent = info.title;
+      if (lead) lead.textContent = info.lead;
+      if (facts) {
+        facts.innerHTML = info.facts.map(([name, text]) =>
+          `<div class="work-fact"><b>${esc(name)}</b><span>${esc(text)}</span></div>`
+        ).join('');
       }
-      if (pickFile) fileInput.click();
+      if (steps) {
+        steps.innerHTML = info.steps.map((text, i) =>
+          `<li><span class="num">${i + 1}</span><span>${esc(text)}</span></li>`
+        ).join('');
+      }
+      if (accept) accept.textContent = info.accept;
+      if (grid) {
+        const others = MODE_SWITCH[mode] || [];
+        grid.innerHTML = others.map(item => `
+          <article class="switch-card">
+            <h4>${esc(item.title)}</h4>
+            <p>${esc(item.blurb)}</p>
+            <div class="drop-toolbar">
+              <button type="button" class="secondary" data-switch-mode="${esc(item.id)}">Open this workflow</button>
+              <button type="button" class="choose-pdf-btn" data-switch-pick="${esc(item.id)}">Choose PDF</button>
+            </div>
+          </article>`).join('');
+      }
     }
 
-    backBtn.addEventListener('click', () => {
+    function goHome() {
       modeSelect.hidden = false;
       workArea.hidden = true;
-      if (backBtn) backBtn.hidden = true;
+      if (homeBtn) homeBtn.hidden = true;
       const homeDash = document.getElementById('homeDash');
       const homeInfo = document.getElementById('homeInfo');
       const homeTools = document.getElementById('homeTools');
@@ -925,7 +1107,58 @@ PAGE = r"""
       currentMode = '';
       clearBtn.hidden = true;
       fileMeta.textContent = 'No file selected';
+    }
+
+    document.getElementById('modeVerify').addEventListener('click', () => enterMode('verify'));
+    document.getElementById('modeBlank').addEventListener('click', () => enterMode('blank'));
+    document.getElementById('modeBsa').addEventListener('click', () => enterMode('bsa'));
+    document.querySelectorAll('#modeSelect .choose-pdf-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        enterMode(btn.getAttribute('data-mode'), true);
+      });
     });
+    document.getElementById('switchGrid')?.addEventListener('click', (e) => {
+      const pick = e.target.closest('[data-switch-pick]');
+      if (pick) {
+        e.preventDefault();
+        enterMode(pick.getAttribute('data-switch-pick'), true);
+        return;
+      }
+      const open = e.target.closest('[data-switch-mode]');
+      if (open) {
+        e.preventDefault();
+        enterMode(open.getAttribute('data-switch-mode'));
+      }
+    });
+
+    function enterMode(mode, pickFile) {
+      currentMode = mode;
+      modeSelect.hidden = true;
+      workArea.hidden = false;
+      if (homeBtn) homeBtn.hidden = false;
+      const homeDash = document.getElementById('homeDash');
+      const homeInfo = document.getElementById('homeInfo');
+      const homeTools = document.getElementById('homeTools');
+      if (homeDash) homeDash.hidden = true;
+      if (homeInfo) homeInfo.hidden = true;
+      if (homeTools) homeTools.hidden = true;
+      result.innerHTML = '';
+      fileInput.value = '';
+      lastFile = null;
+      clearBtn.hidden = true;
+      fileMeta.textContent = 'No file selected';
+      const info = MODE_INFO[mode] || MODE_INFO.verify;
+      dropLabel.textContent = info.dropLabel;
+      dropHint.textContent = info.dropHint;
+      fileInput.multiple = !!info.multiple;
+      renderWorkChrome(mode);
+      if (pickFile) fileInput.click();
+    }
+
+    homeBtn?.addEventListener('click', goHome);
+    homeBtnPage?.addEventListener('click', goHome);
 
     browse.addEventListener('click', () => fileInput.click());
     clearBtn.addEventListener('click', () => {
