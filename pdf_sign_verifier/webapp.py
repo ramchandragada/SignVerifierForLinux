@@ -1247,16 +1247,13 @@ PAGE = r"""
           updateStatus.textContent = `Already up to date (${status.current_version}).`;
           return;
         }
-        if (!status.deb_ready) {
-          updateBtn.textContent = 'Downloading...';
-          updateStatus.textContent = `Downloading ${status.latest_version}...`;
-          const dlRes = await fetch('/api/app-update/download', { method: 'POST' });
-          const dl = await dlRes.json().catch(() => ({}));
-          if (!dlRes.ok || !dl.downloaded) throw new Error(dl.error || 'Download failed');
-          pendingUpdateVersion = dl.latest_version || status.latest_version || '';
-        } else {
-          pendingUpdateVersion = status.latest_version || '';
-        }
+        // Always download fresh when versions don't match — never reuse a stale .deb.
+        updateBtn.textContent = 'Downloading...';
+        updateStatus.textContent = `Downloading ${status.latest_version}...`;
+        const dlRes = await fetch('/api/app-update/download', { method: 'POST' });
+        const dl = await dlRes.json().catch(() => ({}));
+        if (!dlRes.ok || !dl.downloaded) throw new Error(dl.error || 'Download failed');
+        pendingUpdateVersion = dl.downloaded_version || dl.latest_version || status.latest_version || '';
         updateStatus.textContent = `${pendingUpdateVersion} downloaded. Waiting for install confirmation.`;
         if (updateDialogText) {
           updateDialogText.textContent =
@@ -1868,11 +1865,58 @@ def _latest_deb_release() -> dict:
 
 
 UPDATE_DEB_PATH = Path("/var/tmp/pdf-sign-verifier-latest.deb")
+UPDATE_DEB_VERSION_PATH = Path("/var/tmp/pdf-sign-verifier-latest.version")
+
+
+def _deb_package_version(deb_path: Path) -> str:
+    """Read Version: from a .deb (avoids installing a stale/older file)."""
+    try:
+        return subprocess.check_output(
+            ["dpkg-deb", "-f", str(deb_path), "Version"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return ""
+
+
+def _clear_downloaded_update() -> None:
+    for path in (UPDATE_DEB_PATH, UPDATE_DEB_VERSION_PATH):
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _downloaded_update_matches(latest_version: str) -> bool:
+    if not UPDATE_DEB_PATH.is_file() or not latest_version:
+        return False
+    file_ver = _deb_package_version(UPDATE_DEB_PATH)
+    if not file_ver:
+        return False
+    return _parse_version_tuple(file_ver) == _parse_version_tuple(latest_version)
+
+
+def _download_latest_deb(latest: dict) -> str:
+    """Download GitHub latest .deb and return its package version."""
+    req = urllib.request.Request(
+        latest["url"],
+        headers={"User-Agent": "pdf-sign-verifier"},
+    )
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        UPDATE_DEB_PATH.write_bytes(resp.read())
+    UPDATE_DEB_PATH.chmod(0o644)
+    file_ver = _deb_package_version(UPDATE_DEB_PATH) or str(latest.get("version") or "")
+    UPDATE_DEB_VERSION_PATH.write_text(file_ver, encoding="utf-8")
+    return file_ver
 
 
 def _manual_update_command(deb_path: Path | None = None) -> str:
     path = deb_path or UPDATE_DEB_PATH
-    return f"sudo apt install -y {path}"
+    return (
+        f"sudo apt-get install -y --reinstall --allow-downgrades {path} "
+        f"&& pkill -f pdf-sign-verifier || true; pdf-sign-verifier"
+    )
 
 
 def _sudo_auth_required(output: str) -> bool:
@@ -1898,10 +1942,13 @@ def _run_install(deb_path: Path) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["DEBIAN_FRONTEND"] = "noninteractive"
     apt_get = shutil.which("apt-get") or "/usr/bin/apt-get"
-    attempts: list[list[str]] = [["sudo", "-n", apt_get, "install", "-y", str(deb_path)]]
+    # --reinstall covers same-version replace; --allow-downgrades only needed if a
+    # stale lower .deb was cached — we normally avoid that by re-downloading.
+    apt_args = ["install", "-y", "--reinstall", "--allow-downgrades", str(deb_path)]
+    attempts: list[list[str]] = [["sudo", "-n", apt_get, *apt_args]]
     pkexec = shutil.which("pkexec")
     if pkexec:
-        attempts.append([pkexec, apt_get, "install", "-y", str(deb_path)])
+        attempts.append([pkexec, apt_get, *apt_args])
     last = subprocess.CompletedProcess(attempts[0], 1, "", "install not attempted")
     for cmd in attempts:
         last = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
@@ -1966,9 +2013,13 @@ def api_app_update_status():
         {
             "current_version": _effective_app_version(),
             "bundled_version": __version__,
+            "installed_version": _installed_deb_version(),
             "latest_version": latest["version"],
             "update_available": latest_v > current,
-            "deb_ready": UPDATE_DEB_PATH.is_file(),
+            "deb_ready": _downloaded_update_matches(latest["version"]),
+            "downloaded_version": _deb_package_version(UPDATE_DEB_PATH)
+            if UPDATE_DEB_PATH.is_file()
+            else "",
         }
     )
 
@@ -1992,35 +2043,62 @@ def api_app_update_download():
             }
         )
 
-    req = urllib.request.Request(
-        latest["url"],
-        headers={"User-Agent": "pdf-sign-verifier"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            UPDATE_DEB_PATH.write_bytes(resp.read())
-        UPDATE_DEB_PATH.chmod(0o644)
+        # Always replace any stale/older cached .deb (root cause of apt "downgrade").
+        _clear_downloaded_update()
+        file_ver = _download_latest_deb(latest)
     except Exception as exc:
         return jsonify({"error": f"Download failed: {exc}"}), 500
     return jsonify(
         {
             "downloaded": True,
             "latest_version": latest["version"],
+            "downloaded_version": file_ver,
             "path": str(UPDATE_DEB_PATH),
-            "message": f"Downloaded {latest['version']}. Ready to install.",
+            "message": f"Downloaded {file_ver or latest['version']}. Ready to install.",
         }
     )
 
 
 @app.post("/api/app-update/install")
 def api_app_update_install():
-    if not UPDATE_DEB_PATH.is_file():
-        return jsonify({"error": "No downloaded update found. Download first."}), 400
     try:
         latest = _latest_deb_release()
         latest_version = latest["version"]
-    except Exception:
-        latest_version = ""
+    except Exception as exc:
+        return jsonify({"error": f"Could not check latest release: {exc}"}), 500
+
+    # Never install a stale cache — re-fetch if missing or wrong version.
+    if not _downloaded_update_matches(latest_version):
+        try:
+            _clear_downloaded_update()
+            _download_latest_deb(latest)
+        except Exception as exc:
+            return jsonify({"error": f"Could not download latest package: {exc}"}), 500
+
+    if not UPDATE_DEB_PATH.is_file():
+        return jsonify({"error": "No downloaded update found. Download first."}), 400
+
+    file_ver = _deb_package_version(UPDATE_DEB_PATH) or latest_version
+    installed_before = _installed_deb_version()
+    if (
+        installed_before
+        and file_ver
+        and _parse_version_tuple(file_ver) < _parse_version_tuple(installed_before)
+    ):
+        return jsonify(
+            {
+                "updated": False,
+                "message": (
+                    f"Refusing to install older package {file_ver} over installed "
+                    f"{installed_before}. Cleared bad cache — check for update again."
+                ),
+                "latest_version": latest_version,
+                "downloaded_version": file_ver,
+                "installed_version": installed_before,
+                "command": _manual_update_command(),
+            }
+        ), 400
 
     try:
         proc = _run_install(UPDATE_DEB_PATH)
@@ -2036,7 +2114,7 @@ def api_app_update_install():
         )
 
     if proc.returncode == 0:
-        installed = _installed_deb_version() or latest_version
+        installed = _installed_deb_version() or file_ver
         if (
             latest_version
             and installed
@@ -2054,7 +2132,8 @@ def api_app_update_install():
                     "command": _manual_update_command(),
                 }
             )
-        threading.Timer(0.7, _relaunch_and_exit).start()
+        _clear_downloaded_update()
+        threading.Timer(0.9, _relaunch_and_exit).start()
         return jsonify(
             {
                 "updated": True,
@@ -2077,9 +2156,9 @@ def api_app_update_install():
             "details": combined[:1200],
             "command": _manual_update_command(),
             "latest_version": latest_version,
+            "downloaded_version": file_ver,
         }
     )
-
 
 @app.post("/api/app-update")
 def api_app_update():
@@ -2522,7 +2601,9 @@ def _relaunch_and_exit() -> None:
     if not Path(launcher).exists():
         launcher = "/opt/pdf-sign-verifier/pdf-sign-verifier"
     _close_app_windows()
+    _kill_orphan_browser_processes()
     _release_instance_lock()
+    time.sleep(0.4)
     try:
         subprocess.Popen(
             [launcher, "--gui"],
