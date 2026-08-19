@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="PDF Sign Verifier">
+  <rect width="256" height="256" rx="56" fill="#071529"/>
+  <path fill="#f4f7fb" d="M70 42h86l50 50v112a22 22 0 0 1-22 22H70a22 22 0 0 1-22-22V64a22 22 0 0 1 22-22z"/>
+  <path fill="#d5deea" d="M156 42v48h48"/>
+  <rect x="78" y="116" width="92" height="11" rx="5.5" fill="#8fa3bf"/>
+  <rect x="78" y="138" width="72" height="11" rx="5.5" fill="#8fa3bf"/>
+  <rect x="78" y="160" width="52" height="11" rx="5.5" fill="#8fa3bf"/>
+  <circle cx="186" cy="186" r="54" fill="#0f7a45"/>
+  <path d="M162 186 l18 18 32-36" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

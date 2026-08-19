@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import shutil
@@ -36,6 +37,8 @@ PAGE = r"""
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PDF Sign Verifier</title>
+  <link rel="icon" type="image/png" href="/brand/app-icon.png" />
+  <link rel="apple-touch-icon" href="/brand/app-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -68,6 +71,7 @@ PAGE = r"""
       --radius: 18px;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body {
       height: 100%;
       margin: 0;
@@ -126,16 +130,28 @@ PAGE = r"""
       -webkit-app-region: no-drag;
     }
     .aspera-logo {
-      height: 42px;
+      height: 36px;
       width: auto;
-      max-width: 230px;
+      max-width: 240px;
       object-fit: contain;
+      object-position: left center;
       display: block;
-      border-radius: 8px;
-      background: #081a36;
-      box-shadow: 0 0 0 1px rgba(183,182,244,0.22);
+      background: transparent;
+      box-shadow: none;
+      border-radius: 0;
       -webkit-app-region: no-drag;
     }
+    .titlebar-back {
+      -webkit-app-region: no-drag;
+      padding: 0.38rem 0.85rem;
+      font-size: 0.78rem;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.10);
+      color: #e8eef8;
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: none;
+    }
+    .titlebar-back:hover { filter: brightness(1.1); transform: none; }
     .app-body {
       flex: 1 1 auto;
       overflow: auto;
@@ -184,7 +200,7 @@ PAGE = r"""
     h1, .tagline, .hero { display: none; }
     .drop {
       position: relative;
-      margin-top: 1.6rem;
+      margin-top: 0;
       background:
         linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(248,252,250,0.9) 100%);
       border: 1.5px dashed rgba(15, 107, 86, 0.35);
@@ -241,6 +257,13 @@ PAGE = r"""
       justify-content: center;
       flex-wrap: wrap;
     }
+    .drop-toolbar {
+      margin-top: 1.05rem;
+      display: flex;
+      gap: 0.6rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
     button, .btn {
       appearance: none;
       border: 0;
@@ -266,6 +289,17 @@ PAGE = r"""
       box-shadow: none;
       border: 1px solid rgba(15,107,86,0.14);
     }
+    .titlebar .titlebar-back {
+      -webkit-app-region: no-drag;
+      padding: 0.38rem 0.85rem;
+      font-size: 0.78rem;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.10);
+      color: #e8eef8;
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: none;
+    }
+    .titlebar .titlebar-back:hover { filter: brightness(1.1); transform: none; }
     button.success, .btn.success {
       background: linear-gradient(180deg, #19a05c 0%, #0f7a45 100%);
       box-shadow: 0 8px 18px rgba(15, 122, 69, 0.22);
@@ -500,12 +534,21 @@ PAGE = r"""
       background: var(--panel-solid);
       border: 1px solid rgba(13,35,72,0.08);
       border-radius: 18px;
-      padding: 1.15rem 1.1rem 1.2rem;
+      padding: 1.15rem 1.1rem 1.05rem;
       cursor: pointer;
       transition: border-color .18s, box-shadow .18s, transform .18s;
       text-align: left;
-      min-height: 210px;
+      min-height: 250px;
       box-shadow: 0 10px 28px rgba(7,21,41,0.05);
+      display: flex;
+      flex-direction: column;
+    }
+    .mode-card .choose-pdf-btn {
+      margin-top: auto;
+      width: 100%;
+      justify-content: center;
+      padding: 0.62rem 1rem;
+      font-size: 0.88rem;
     }
     .mode-card:hover {
       border-color: rgba(15,107,86,0.45);
@@ -517,7 +560,7 @@ PAGE = r"""
       font-size: 1.05rem;
       margin: 0.75rem 0 0.4rem;
     }
-    .mode-card p { color: var(--muted); margin: 0; font-size: 0.86rem; line-height: 1.5; }
+    .mode-card p { color: var(--muted); margin: 0 0 0.85rem; font-size: 0.86rem; line-height: 1.5; flex: 1; }
     .mode-card p strong { color: var(--ink); }
     .mode-icon {
       width: 46px; height: 46px;
@@ -626,6 +669,7 @@ PAGE = r"""
         <strong>PDF Sign Verifier</strong>
         <span>Indian DSC · CCA trust · Linux</span>
       </div>
+      <button type="button" class="titlebar-back" id="backBtn" hidden>← Back to options</button>
       <div class="titlebar-ver">{{ version }}</div>
     </header>
     <div class="app-body">
@@ -652,6 +696,7 @@ PAGE = r"""
         </div>
         <h2>Verify Pre-filled Signed NOC</h2>
         <p>NOC already has seller details filled in. Drop the signed PDF to <strong>verify the digital signature</strong> and save with Adobe-style green tick.</p>
+        <button type="button" class="choose-pdf-btn" data-mode="verify">Choose PDF</button>
       </div>
       <div class="mode-card" id="modeBlank">
         <div class="mode-icon" style="background:var(--gold-soft);color:#8a5f12">
@@ -659,6 +704,7 @@ PAGE = r"""
         </div>
         <h2>Fill Blank Signed NOC</h2>
         <p>NOC is blank (dotted lines / empty fields). <strong>Add seller name, date, address</strong> first, then verify the digital signature.</p>
+        <button type="button" class="choose-pdf-btn" data-mode="blank">Choose PDF</button>
       </div>
       <div class="mode-card" id="modeBsa">
         <div class="mode-icon" style="background:var(--untrusted-bg);color:var(--untrusted)">
@@ -666,6 +712,7 @@ PAGE = r"""
         </div>
         <h2>Verify BSA Agreement</h2>
         <p>Amazon Business Solutions Agreement (BSA). Drop the signed PDF to <strong>verify the digital signature</strong> — no form fill needed.</p>
+        <button type="button" class="choose-pdf-btn" data-mode="bsa">Choose PDF</button>
       </div>
     </div>
 
@@ -692,11 +739,6 @@ PAGE = r"""
     </div>
 
     <div id="workArea" hidden>
-      <div class="actions" style="margin-bottom:1rem">
-        <button type="button" class="secondary" id="backBtn">← Back to options</button>
-        <button type="button" class="secondary" id="clear" hidden>Clear file</button>
-      </div>
-
       <div class="drop" id="drop">
         <div class="drop-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -707,9 +749,10 @@ PAGE = r"""
           </svg>
         </div>
         <p><strong id="dropLabel">Drop signed PDF here</strong></p>
-        <p id="dropHint">PKCS#7 / CMS check against CCA India roots + licensed CA intermediates.</p>
-        <div class="actions">
+        <p id="dropHint">PKCS#7 / CMS check against CCA India trust roots + licensed CA intermediates.</p>
+        <div class="drop-toolbar">
           <button type="button" id="browse">Choose PDF</button>
+          <button type="button" class="secondary" id="clear" hidden>Clear file</button>
         </div>
         <input id="file" type="file" accept="application/pdf,.pdf" />
         <div class="meta" id="fileMeta">No file selected</div>
@@ -826,11 +869,19 @@ PAGE = r"""
     document.getElementById('modeVerify').addEventListener('click', () => enterMode('verify'));
     document.getElementById('modeBlank').addEventListener('click', () => enterMode('blank'));
     document.getElementById('modeBsa').addEventListener('click', () => enterMode('bsa'));
+    document.querySelectorAll('.choose-pdf-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        enterMode(btn.getAttribute('data-mode'), true);
+      });
+    });
 
-    function enterMode(mode) {
+    function enterMode(mode, pickFile) {
       currentMode = mode;
       modeSelect.hidden = true;
       workArea.hidden = false;
+      if (backBtn) backBtn.hidden = false;
       const homeDash = document.getElementById('homeDash');
       const homeInfo = document.getElementById('homeInfo');
       const homeTools = document.getElementById('homeTools');
@@ -855,11 +906,13 @@ PAGE = r"""
         dropHint.textContent = 'We\u2019ll detect blank fields so you can add seller name, date, address — then verify.';
         fileInput.multiple = false;
       }
+      if (pickFile) fileInput.click();
     }
 
     backBtn.addEventListener('click', () => {
       modeSelect.hidden = false;
       workArea.hidden = true;
+      if (backBtn) backBtn.hidden = true;
       const homeDash = document.getElementById('homeDash');
       const homeInfo = document.getElementById('homeInfo');
       const homeTools = document.getElementById('homeTools');
@@ -870,6 +923,8 @@ PAGE = r"""
       fileInput.value = '';
       lastFile = null;
       currentMode = '';
+      clearBtn.hidden = true;
+      fileMeta.textContent = 'No file selected';
     });
 
     browse.addEventListener('click', () => fileInput.click());
@@ -920,9 +975,9 @@ PAGE = r"""
       updateDialog?.close();
       await installDownloadedUpdate();
     });
-    checkUpdateStatus();
+    checkUpdateStatus(true);
 
-    async function checkUpdateStatus() {
+    async function checkUpdateStatus(autoStart) {
       if (!updateStatus) return;
       try {
         const res = await fetch('/api/app-update/status');
@@ -930,6 +985,7 @@ PAGE = r"""
         if (data.update_available) {
           updateStatus.textContent = `Update available: ${data.latest_version} (you have ${data.current_version})`;
           if (updateBtn) updateBtn.textContent = 'Download update';
+          if (autoStart) await runAppUpdate();
         } else if (data.latest_version) {
           updateStatus.textContent = `Ready · latest is ${data.latest_version}`;
         }
@@ -1518,10 +1574,17 @@ def aspera_logo():
 
 @app.get("/brand/aspera-logo.svg")
 def aspera_logo_svg():
-    png = _static_dir() / "aspera-logo.png"
-    if png.is_file():
-        return send_from_directory(_static_dir(), "aspera-logo.png", mimetype="image/png")
     return send_from_directory(_static_dir(), "aspera-logo.svg", mimetype="image/svg+xml")
+
+
+@app.get("/brand/app-icon.png")
+def app_icon_png():
+    return send_from_directory(_static_dir(), "app-icon.png", mimetype="image/png")
+
+
+@app.get("/brand/app-icon.svg")
+def app_icon_svg():
+    return send_from_directory(_static_dir(), "app-icon.svg", mimetype="image/svg+xml")
 
 
 @app.get("/")
@@ -1841,6 +1904,121 @@ def api_verification_report():
         )
 
 
+_APP_CACHE = Path.home() / ".cache" / "pdf-sign-verifier-app"
+_STATE_DIR = Path.home() / ".cache" / "pdf-sign-verifier"
+_INSTANCE_LOCK_FP = None
+_WM_CLASS = "PDFSignVerifier"
+
+
+def _try_acquire_instance_lock() -> bool:
+    """Keep a single app process. The lock is released when this process exits."""
+    global _INSTANCE_LOCK_FP
+    _STATE_DIR.mkdir(parents=True, exist_ok=True)
+    fp = open(_STATE_DIR / "instance.lock", "a+", encoding="utf-8")
+    try:
+        fcntl.flock(fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fp.close()
+        return False
+    fp.seek(0)
+    fp.truncate()
+    fp.write(str(os.getpid()))
+    fp.flush()
+    _INSTANCE_LOCK_FP = fp
+    return True
+
+
+def _write_instance_port(port: int) -> None:
+    _STATE_DIR.mkdir(parents=True, exist_ok=True)
+    (_STATE_DIR / "port").write_text(str(port), encoding="utf-8")
+
+
+def _read_instance_port(default: int) -> int:
+    try:
+        return int((_STATE_DIR / "port").read_text(encoding="utf-8").strip())
+    except Exception:
+        return default
+
+
+def _run_quiet(args: list[str]) -> bool:
+    if not shutil.which(args[0]):
+        return False
+    result = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0
+
+
+def _app_window_open() -> bool:
+    if shutil.which("wmctrl"):
+        try:
+            listing = subprocess.check_output(["wmctrl", "-lx"], text=True, errors="ignore")
+        except Exception:
+            listing = ""
+        for line in listing.splitlines():
+            low = line.lower()
+            if _WM_CLASS.lower() in low or "pdf sign verifier" in low:
+                return True
+    if shutil.which("xdotool"):
+        found = subprocess.run(
+            ["xdotool", "search", "--class", _WM_CLASS],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if found.returncode == 0:
+            return True
+    try:
+        listing = subprocess.check_output(["ps", "-eo", "args"], text=True, errors="ignore")
+        return any(
+            "pdf-sign-verifier-app" in line and "--app=" in line
+            for line in listing.splitlines()
+        )
+    except Exception:
+        return False
+
+
+def _raise_and_maximize_window() -> bool:
+    raised = (
+        _run_quiet(["wmctrl", "-xa", _WM_CLASS])
+        or _run_quiet(["wmctrl", "-a", "PDF Sign Verifier"])
+        or _run_quiet(["xdotool", "search", "--class", _WM_CLASS, "windowactivate"])
+    )
+    _run_quiet(
+        ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,maximized_vert,maximized_horz"]
+    )
+    _run_quiet(
+        ["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,maximized_vert,maximized_horz"]
+    )
+    return raised
+
+
+def _maximize_when_ready(timeout: float = 8.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _app_window_open():
+            _raise_and_maximize_window()
+            return
+        time.sleep(0.2)
+
+
+def _activate_existing_instance(host: str, preferred_port: int) -> None:
+    port = _read_instance_port(preferred_port)
+    url = f"http://{host}:{port}/"
+    if _app_window_open():
+        _raise_and_maximize_window()
+        print("PDF Sign Verifier is already running — existing window brought to the front.")
+        return
+    try:
+        urllib.request.urlopen(url, timeout=0.6)
+        server_up = True
+    except Exception:
+        server_up = False
+    if server_up and _open_chrome_app_window(url):
+        threading.Thread(target=_maximize_when_ready, daemon=True).start()
+        print("PDF Sign Verifier is already running — reopened the app window.")
+        return
+    _raise_and_maximize_window()
+    print("PDF Sign Verifier is already running.")
+
+
 def _pick_port(host: str, preferred: int, attempts: int = 20) -> int:
     """Use preferred port, or the next free one if it is already taken."""
     import socket
@@ -1870,7 +2048,7 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> None:
 
 
 def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
-    profile = Path.home() / ".cache" / "pdf-sign-verifier-app"
+    profile = _APP_CACHE
     profile.mkdir(parents=True, exist_ok=True)
     binaries = (
         "google-chrome",
@@ -1893,6 +2071,7 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--class=PDFSignVerifier",
+                "--start-maximized",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -1910,9 +2089,10 @@ def _open_webview(url: str) -> bool:
         webview.create_window(
             "PDF Sign Verifier",
             url,
-            width=1100,
-            height=780,
+            width=1400,
+            height=900,
             min_size=(880, 620),
+            maximized=True,
         )
         webview.start()
         return True
@@ -1921,7 +2101,12 @@ def _open_webview(url: str) -> bool:
 
 
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+    if not _try_acquire_instance_lock():
+        _activate_existing_instance(host, port)
+        return
+
     chosen = _pick_port(host, port)
+    _write_instance_port(chosen)
     url = f"http://{host}:{chosen}/"
     print(f"PDF Sign Verifier {__version__}")
     if chosen != port:
@@ -1933,10 +2118,11 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
         def _launch() -> None:
             _wait_for_server(url)
             if _open_chrome_app_window(url):
+                _maximize_when_ready()
                 return
             webbrowser.open(url)
 
-        threading.Timer(0.5, _launch).start()
+        threading.Timer(0.35, _launch).start()
 
     # Flask must stay on the main thread. If it runs as a daemon and the
     # window process exits, the server dies and the UI shows connection refused.
