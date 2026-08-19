@@ -2355,6 +2355,14 @@ def _write_instance_port(port: int) -> None:
     (_STATE_DIR / "port").write_text(str(port), encoding="utf-8")
 
 
+def _read_instance_port(preferred: int) -> int:
+    try:
+        text = (_STATE_DIR / "port").read_text(encoding="utf-8").strip()
+        return int(text.split()[0])
+    except Exception:
+        return preferred
+
+
 def _installed_deb_version() -> str:
     try:
         return subprocess.check_output(

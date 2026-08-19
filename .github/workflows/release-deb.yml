@@ -60,6 +60,15 @@ jobs:
       - name: Smoke test binary
         run: |
           ./dist/pyi/pdf-sign-verifier/pdf-sign-verifier --list-roots | head -10
+          ./dist/pyi/pdf-sign-verifier/pdf-sign-verifier --no-browser --port 18765 &
+          srv=$!
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:18765/ >/dev/null && break
+            sleep 0.2
+          done
+          curl -sf http://127.0.0.1:18765/ >/dev/null
+          kill "$srv" 2>/dev/null || true
+          wait "$srv" 2>/dev/null || true
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
