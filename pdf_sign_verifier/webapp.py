@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -1204,7 +1205,10 @@ PAGE = r"""
     });
 
     updateBtn?.addEventListener('click', runAppUpdate);
-    updateLaterBtn?.addEventListener('click', () => updateDialog?.close());
+    updateLaterBtn?.addEventListener('click', () => {
+      if (pendingUpdateVersion) sessionStorage.setItem('psv-update-later', pendingUpdateVersion);
+      updateDialog?.close();
+    });
     updateInstallBtn?.addEventListener('click', async () => {
       updateDialog?.close();
       await installDownloadedUpdate();
@@ -1219,7 +1223,8 @@ PAGE = r"""
         if (data.update_available) {
           updateStatus.textContent = `Update available: ${data.latest_version} (you have ${data.current_version})`;
           if (updateBtn) updateBtn.textContent = 'Download update';
-          if (autoStart) await runAppUpdate();
+          const skipped = sessionStorage.getItem('psv-update-later');
+          if (autoStart && skipped !== data.latest_version) await runAppUpdate();
         } else if (data.latest_version) {
           updateStatus.textContent = `Ready · latest is ${data.latest_version}`;
         }
@@ -1242,12 +1247,16 @@ PAGE = r"""
           updateStatus.textContent = `Already up to date (${status.current_version}).`;
           return;
         }
-        updateBtn.textContent = 'Downloading...';
-        updateStatus.textContent = `Downloading ${status.latest_version}...`;
-        const dlRes = await fetch('/api/app-update/download', { method: 'POST' });
-        const dl = await dlRes.json().catch(() => ({}));
-        if (!dlRes.ok || !dl.downloaded) throw new Error(dl.error || 'Download failed');
-        pendingUpdateVersion = dl.latest_version || status.latest_version || '';
+        if (!status.deb_ready) {
+          updateBtn.textContent = 'Downloading...';
+          updateStatus.textContent = `Downloading ${status.latest_version}...`;
+          const dlRes = await fetch('/api/app-update/download', { method: 'POST' });
+          const dl = await dlRes.json().catch(() => ({}));
+          if (!dlRes.ok || !dl.downloaded) throw new Error(dl.error || 'Download failed');
+          pendingUpdateVersion = dl.latest_version || status.latest_version || '';
+        } else {
+          pendingUpdateVersion = status.latest_version || '';
+        }
         updateStatus.textContent = `${pendingUpdateVersion} downloaded. Waiting for install confirmation.`;
         if (updateDialogText) {
           updateDialogText.textContent =
@@ -1276,7 +1285,11 @@ PAGE = r"""
         const data = await res.json().catch(() => ({}));
         const latest = data.latest_version ? `Latest: ${data.latest_version}` : '';
         if (data.updated) {
-          updateStatus.textContent = [data.message, latest, 'Please close this window and start the app again.'].filter(Boolean).join('\n');
+          updateStatus.textContent = [
+            data.message,
+            latest,
+            data.restarting ? 'Restarting the new version now…' : 'Please close this window and start the app again.',
+          ].filter(Boolean).join('\n');
           return;
         }
         updateStatus.textContent = [
@@ -1951,6 +1964,7 @@ def api_app_update_status():
             "current_version": __version__,
             "latest_version": latest["version"],
             "update_available": latest_v > current,
+            "deb_ready": UPDATE_DEB_PATH.is_file(),
         }
     )
 
@@ -2018,11 +2032,32 @@ def api_app_update_install():
         )
 
     if proc.returncode == 0:
+        installed = _installed_deb_version() or latest_version
+        if (
+            latest_version
+            and installed
+            and _parse_version_tuple(installed) < _parse_version_tuple(latest_version)
+        ):
+            return jsonify(
+                {
+                    "updated": False,
+                    "message": (
+                        f"Installer finished but the package is still {installed}, "
+                        f"not {latest_version}."
+                    ),
+                    "latest_version": latest_version,
+                    "installed_version": installed,
+                    "command": _manual_update_command(),
+                }
+            )
+        threading.Timer(0.7, _relaunch_and_exit).start()
         return jsonify(
             {
                 "updated": True,
-                "message": f"Updated successfully to {latest_version or 'the latest version'}.",
-                "latest_version": latest_version,
+                "restarting": True,
+                "message": f"Updated successfully to {installed}.",
+                "latest_version": latest_version or installed,
+                "installed_version": installed,
             }
         )
 
@@ -2320,11 +2355,150 @@ def _write_instance_port(port: int) -> None:
     (_STATE_DIR / "port").write_text(str(port), encoding="utf-8")
 
 
-def _read_instance_port(default: int) -> int:
+def _installed_deb_version() -> str:
     try:
-        return int((_STATE_DIR / "port").read_text(encoding="utf-8").strip())
+        return subprocess.check_output(
+            ["dpkg-query", "-W", "-f", "${Version}", "pdf-sign-verifier"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
     except Exception:
-        return default
+        return ""
+
+
+def _lock_pid() -> int | None:
+    try:
+        text = (_STATE_DIR / "instance.lock").read_text(encoding="utf-8").strip()
+        return int(text.split()[0])
+    except Exception:
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _release_instance_lock() -> None:
+    global _INSTANCE_LOCK_FP
+    fp = _INSTANCE_LOCK_FP
+    _INSTANCE_LOCK_FP = None
+    if fp is None:
+        return
+    try:
+        fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        fp.close()
+    except Exception:
+        pass
+
+
+def _close_app_windows() -> None:
+    _run_quiet(["wmctrl", "-c", "PDF Sign Verifier"])
+    _run_quiet(["wmctrl", "-x", "-c", _WM_CLASS])
+    try:
+        listing = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, errors="ignore")
+    except Exception:
+        listing = ""
+    for line in listing.splitlines():
+        if "pdf-sign-verifier-app" in line and "--app=" in line:
+            try:
+                os.kill(int(line.split()[0]), signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
+
+
+def _stop_pid(pid: int) -> None:
+    if pid <= 0 or pid == os.getpid():
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    for _ in range(25):
+        if not _pid_alive(pid):
+            return
+        time.sleep(0.12)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _replace_stale_instance(host: str, port: int) -> bool:
+    """If an old leftover server is still running after a .deb install, kill it."""
+    saved_port = _read_instance_port(port)
+    running_ver = ""
+    try:
+        payload = json.load(
+            urllib.request.urlopen(f"http://{host}:{saved_port}/api/app-update/status", timeout=0.8)
+        )
+        running_ver = str(payload.get("current_version") or "")
+    except Exception:
+        running_ver = ""
+    disk_ver = _installed_deb_version()
+    stale = False
+    if disk_ver and running_ver and _parse_version_tuple(disk_ver) > _parse_version_tuple(running_ver):
+        stale = True
+    if not running_ver:
+        # Window closed but Flask may still hold the lock with no HTTP.
+        pid = _lock_pid()
+        if pid and pid != os.getpid() and _pid_alive(pid) and not _app_window_open():
+            stale = True
+    if not stale:
+        return False
+    pid = _lock_pid()
+    _close_app_windows()
+    if pid:
+        _stop_pid(pid)
+    time.sleep(0.2)
+    return True
+
+
+def _relaunch_and_exit() -> None:
+    """Start the newly installed binary, then quit this old process."""
+    launcher = shutil.which("pdf-sign-verifier") or "/usr/bin/pdf-sign-verifier"
+    if not Path(launcher).exists():
+        launcher = "/opt/pdf-sign-verifier/pdf-sign-verifier"
+    _close_app_windows()
+    _release_instance_lock()
+    try:
+        subprocess.Popen(
+            [launcher, "--gui"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=os.environ.copy(),
+        )
+    except Exception:
+        pass
+    os._exit(0)
+
+
+def _watch_window_and_exit() -> None:
+    """Quit the backend when the user closes the app window (otherwise the old build stays alive)."""
+    appeared = False
+    for _ in range(50):
+        if _app_window_open():
+            appeared = True
+            break
+        time.sleep(0.2)
+    if not appeared:
+        return
+    missing = 0
+    while True:
+        time.sleep(0.8)
+        if _app_window_open():
+            missing = 0
+            continue
+        missing += 1
+        if missing >= 4:
+            os._exit(0)
 
 
 def _run_quiet(args: list[str]) -> bool:
@@ -2545,8 +2719,13 @@ def _open_webview(url: str) -> bool:
 
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
     if not _try_acquire_instance_lock():
-        _activate_existing_instance(host, port)
-        return
+        if _replace_stale_instance(host, port):
+            if not _try_acquire_instance_lock():
+                _activate_existing_instance(host, port)
+                return
+        else:
+            _activate_existing_instance(host, port)
+            return
 
     chosen = _pick_port(host, port)
     _write_instance_port(chosen)
@@ -2562,10 +2741,11 @@ def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) ->
             _wait_for_server(url)
             if _open_chrome_app_window(url):
                 _maximize_when_ready()
+                _watch_window_and_exit()
                 return
             webbrowser.open(url)
 
-        threading.Timer(0.35, _launch).start()
+        threading.Thread(target=_launch, daemon=True).start()
 
     # Flask must stay on the main thread. If it runs as a daemon and the
     # window process exits, the server dies and the UI shows connection refused.
