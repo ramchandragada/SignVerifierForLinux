@@ -1,3 +1,3 @@
 """Lightweight PDF digital signature verifier for Linux offices."""
 
-__version__ = "1.0.55"
+__version__ = "1.0.56"

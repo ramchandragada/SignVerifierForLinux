@@ -125,11 +125,39 @@ PAGE = r"""
     .titlebar-actions {
       display: flex;
       align-items: center;
-      gap: 0.55rem;
+      gap: 0.45rem;
       margin-left: auto;
       -webkit-app-region: no-drag;
       position: relative;
     }
+    .win-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.28rem;
+      margin-left: 0.15rem;
+    }
+    .win-btn {
+      width: 34px;
+      height: 28px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.08);
+      color: #e8eef8;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      box-shadow: none;
+    }
+    .win-btn:hover { filter: brightness(1.15); transform: none; }
+    .win-btn.close:hover {
+      background: #c62828;
+      border-color: #c62828;
+      color: #fff;
+      filter: none;
+    }
+    .win-btn svg { width: 12px; height: 12px; pointer-events: none; }
     .titlebar-ver {
       font-size: 0.78rem;
       color: #d7e3f5;
@@ -908,11 +936,22 @@ PAGE = r"""
       </div>
       <button type="button" class="titlebar-back" id="homeBtn" hidden>Home</button>
       <div class="titlebar-actions">
-        <button type="button" class="dl-btn" id="downloadsBtn" title="Downloads" aria-label="Downloads" aria-expanded="false">
+        <button type="button" class="dl-btn" id="downloadsBtn" title="Downloads" aria-label="Downloads" aria-expanded="false" aria-haspopup="true" aria-controls="downloadsPanel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
           <span class="dl-dot" aria-hidden="true"></span>
         </button>
-        <div class="titlebar-ver">{{ version }}</div>
+        <div class="titlebar-ver" aria-label="Version {{ version }}">{{ version }}</div>
+        <div class="win-controls" role="group" aria-label="Window controls">
+          <button type="button" class="win-btn" id="winMinimize" title="Minimize" aria-label="Minimize">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6h8"/></svg>
+          </button>
+          <button type="button" class="win-btn" id="winMaximize" title="Maximize" aria-label="Maximize">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="0.8"/></svg>
+          </button>
+          <button type="button" class="win-btn close" id="winClose" title="Close" aria-label="Close">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
+          </button>
+        </div>
         <div class="dl-panel" id="downloadsPanel" hidden>
           <div class="dl-panel-head">
             <h3>Recent download history</h3>
@@ -1281,6 +1320,35 @@ PAGE = r"""
       if (e.key === 'Escape') setDownloadsOpen(false);
     });
     refreshDownloads();
+
+    async function windowAction(action) {
+      try {
+        const res = await fetch('/api/window/' + action, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Could not ' + action + ' window'));
+        if (action === 'close') {
+          try { window.close(); } catch (_e) {}
+        }
+      } catch (err) {
+        if (action === 'close') {
+          try { window.close(); } catch (_e) {}
+        } else {
+          console.warn(err);
+        }
+      }
+    }
+    document.getElementById('winMinimize')?.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      windowAction('minimize');
+    });
+    document.getElementById('winMaximize')?.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      windowAction('toggle-maximize');
+    });
+    document.getElementById('winClose')?.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      windowAction('close');
+    });
 
     const BRANCH_OPTIONS = [
       'Latur Maharashtra',
@@ -1712,7 +1780,7 @@ PAGE = r"""
         const ping = await fetch('/api/ping', { cache: 'no-store' }).catch(() => null);
         if (!ping || !ping.ok) {
           throw new Error(
-            'Backend is not running (Failed to fetch). Close every PDF Sign Verifier / Chrome app window, then start the app again from the menu.'
+            'Backend is not running (Failed to fetch). Close every PDF Sign Verifier window, then start the app again from the menu.'
           );
         }
         const res = await fetch('/api/verify', { method: 'POST', body });
@@ -1722,7 +1790,7 @@ PAGE = r"""
       } catch (err) {
         const msg = String(err && err.message ? err.message : err);
         const hint = /failed to fetch|networkerror|load failed/i.test(msg)
-          ? 'Backend is not running (Failed to fetch). Close every PDF Sign Verifier / Chrome app window, then start the app again from the menu.'
+          ? 'Backend is not running (Failed to fetch). Close every PDF Sign Verifier window, then start the app again from the menu.'
           : msg;
         result.innerHTML = `<div class="card"><span class="badge ERROR">ERROR</span><p>${esc(hint)}</p></div>`;
       } finally {
@@ -1983,7 +2051,7 @@ PAGE = r"""
       } catch (err) {
         const msg = String(err && err.message ? err.message : err);
         const hint = /failed to fetch|networkerror|load failed/i.test(msg)
-          ? 'Backend is not running (Failed to fetch). Close every PDF Sign Verifier / Chrome app window, then start the app again from the menu.'
+          ? 'Backend is not running (Failed to fetch). Close every PDF Sign Verifier window, then start the app again from the menu.'
           : msg;
         alert(hint);
         if (btn) { btn.disabled = false; btn.textContent = 'Fill & Verify signature'; }
@@ -3088,6 +3156,63 @@ def api_open_downloads_folder():
     return jsonify({"opened": True, "path": str(folder)})
 
 
+def _window_control(action: str) -> bool:
+    """Minimize / maximize / close the app window via the desktop WM."""
+    wids = _window_ids_for_app()
+    ok = False
+    if action == "minimize":
+        ok = _run_quiet(["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,hidden"])
+        ok = _run_quiet(["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,hidden"]) or ok
+        for wid in wids:
+            ok = _run_quiet(["xdotool", "windowminimize", wid]) or ok
+            ok = _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,hidden"]) or ok
+        return ok
+    if action == "toggle-maximize":
+        ok = _run_quiet(
+            ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "toggle,maximized_vert,maximized_horz"]
+        )
+        ok = (
+            _run_quiet(
+                ["wmctrl", "-r", "PDF Sign Verifier", "-b", "toggle,maximized_vert,maximized_horz"]
+            )
+            or ok
+        )
+        for wid in wids:
+            ok = (
+                _run_quiet(
+                    ["wmctrl", "-i", "-r", wid, "-b", "toggle,maximized_vert,maximized_horz"]
+                )
+                or ok
+            )
+        if not ok:
+            _raise_and_maximize_window(maximize=True)
+            return True
+        return True
+    if action == "close":
+        _close_app_windows()
+        _kill_orphan_browser_processes()
+        for wid in wids:
+            _run_quiet(["wmctrl", "-i", "-c", wid])
+            _run_quiet(["xdotool", "windowclose", wid])
+        threading.Timer(0.35, lambda: os._exit(0)).start()
+        return True
+    return False
+
+
+@app.post("/api/window/<action>")
+def api_window_action(action: str):
+    action = (action or "").strip().lower()
+    if action not in {"minimize", "toggle-maximize", "close"}:
+        return jsonify({"error": "Unknown window action"}), 400
+    try:
+        ok = _window_control(action)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    if not ok and action != "close":
+        return jsonify({"error": f"Could not {action} window (is wmctrl/xdotool installed?)"}), 400
+    return jsonify({"ok": True, "action": action})
+
+
 @app.post("/api/export-verified-noc")
 def api_export_verified_noc():
     upload = request.files.get("pdf")
@@ -3418,29 +3543,33 @@ def _window_ids_for_app() -> list[str]:
     return unique
 
 
-def _stamp_window_identity(wid: str) -> None:
+def _stamp_window_identity(wid: str, *, maximize: bool = False) -> None:
     """Force the running window to use this app's desktop class and icon grouping."""
+    # WM_CLASS needs instance + class (two strings). A single value breaks dock grouping.
     if wid.startswith("0x") or wid.startswith("0X"):
-        _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, str(int(wid, 16))])
-        _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", _WM_CLASS])
-        _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,maximized_vert,maximized_horz"])
+        dec = str(int(wid, 16))
+        _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, dec])
+        _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
+        if maximize:
+            _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,maximized_vert,maximized_horz"])
         return
     _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, wid])
-    _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", _WM_CLASS])
-    hex_id = hex(int(wid)) if wid.isdigit() else wid
-    _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,maximized_vert,maximized_horz"])
+    _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
+    if maximize:
+        hex_id = hex(int(wid)) if wid.isdigit() else wid
+        _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,maximized_vert,maximized_horz"])
 
 
-def _adopt_running_window(timeout: float = 8.0) -> bool:
+def _adopt_running_window(timeout: float = 8.0, *, maximize: bool = True) -> bool:
     deadline = time.time() + timeout
     stamped = False
     while time.time() < deadline:
         wids = _window_ids_for_app()
         for wid in wids:
-            _stamp_window_identity(wid)
+            _stamp_window_identity(wid, maximize=maximize and not stamped)
             stamped = True
         if stamped:
-            _raise_and_maximize_window()
+            _raise_and_maximize_window(maximize=maximize)
             return True
         time.sleep(0.2)
     return False
@@ -3470,30 +3599,31 @@ def _app_window_open() -> bool:
     return False
 
 
-def _raise_and_maximize_window() -> bool:
+def _raise_and_maximize_window(*, maximize: bool = False) -> bool:
     raised = (
         _run_quiet(["wmctrl", "-xa", _WM_CLASS])
         or _run_quiet(["wmctrl", "-a", "PDF Sign Verifier"])
         or _run_quiet(["xdotool", "search", "--class", _WM_CLASS, "windowactivate"])
     )
-    _run_quiet(
-        ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,maximized_vert,maximized_horz"]
-    )
-    _run_quiet(
-        ["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,maximized_vert,maximized_horz"]
-    )
+    if maximize:
+        _run_quiet(
+            ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,maximized_vert,maximized_horz"]
+        )
+        _run_quiet(
+            ["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,maximized_vert,maximized_horz"]
+        )
     return raised
 
 
 def _maximize_when_ready(timeout: float = 8.0) -> None:
-    _adopt_running_window(timeout=timeout)
+    _adopt_running_window(timeout=timeout, maximize=True)
 
 
 def _activate_existing_instance(host: str, preferred_port: int) -> None:
     port = _read_instance_port(preferred_port)
     url = f"http://{host}:{port}/"
     if _app_window_open():
-        _raise_and_maximize_window()
+        _raise_and_maximize_window(maximize=False)
         print("PDF Sign Verifier is already running — existing window brought to the front.")
         return
     try:
@@ -3505,7 +3635,7 @@ def _activate_existing_instance(host: str, preferred_port: int) -> None:
         threading.Thread(target=_maximize_when_ready, daemon=True).start()
         print("PDF Sign Verifier is already running — reopened the app window.")
         return
-    _raise_and_maximize_window()
+    _raise_and_maximize_window(maximize=False)
     print("PDF Sign Verifier is already running.")
 
 
@@ -3581,14 +3711,25 @@ def _open_pywebview_window(url: str) -> bool:
         return False
     threading.Thread(target=_adopt_running_window, kwargs={"timeout": 12.0}, daemon=True).start()
     try:
-        webview.create_window(
-            "PDF Sign Verifier",
-            url,
-            width=1400,
-            height=900,
-            min_size=(880, 620),
-            maximized=True,
-        )
+        try:
+            webview.create_window(
+                "PDF Sign Verifier",
+                url,
+                width=1400,
+                height=900,
+                min_size=(880, 620),
+                maximized=True,
+                frameless=False,
+            )
+        except TypeError:
+            webview.create_window(
+                "PDF Sign Verifier",
+                url,
+                width=1400,
+                height=900,
+                min_size=(880, 620),
+                maximized=True,
+            )
         webview.start(gui="gtk")
         return True
     except Exception as exc:
@@ -3644,14 +3785,18 @@ def _focus_running_app(host: str, port: int, open_browser: bool) -> None:
         return
     url = f"http://{host}:{saved_port}/"
     if _app_window_open():
-        _raise_and_maximize_window()
+        _raise_and_maximize_window(maximize=False)
         return
     if open_browser and _open_chrome_app_window(url):
-        _maximize_when_ready()
+        threading.Thread(
+            target=_adopt_running_window, kwargs={"timeout": 8.0, "maximize": True}, daemon=True
+        ).start()
         return
     if open_browser:
         webbrowser.open(url)
-        _maximize_when_ready()
+        threading.Thread(
+            target=_adopt_running_window, kwargs={"timeout": 8.0, "maximize": True}, daemon=True
+        ).start()
 
 
 def _start_app(host: str, port: int, open_browser: bool) -> None:

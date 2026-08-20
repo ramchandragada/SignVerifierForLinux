@@ -198,9 +198,9 @@ Comment=Verify Indian DSC / Amazon NOC PDF signatures
 Exec=pdf-sign-verifier --gui
 Icon=pdf-sign-verifier
 Terminal=false
-Categories=Office;Utility;XFCE;
+Categories=Office;Utility;
 Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
-StartupNotify=false
+StartupNotify=true
 StartupWMClass=pdf-sign-verifier
 SingleMainWindow=true
 EOF
