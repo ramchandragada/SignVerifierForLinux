@@ -142,147 +142,31 @@ PAGE = r"""
       padding: 0.28rem 0.7rem;
       -webkit-app-region: no-drag;
     }
-    .dl-btn {
-      position: relative;
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.16);
-      background: rgba(255,255,255,0.08);
-      color: #e8eef8;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      padding: 0;
-      box-shadow: none;
-    }
-    .dl-btn:hover { filter: brightness(1.12); transform: none; }
-    .dl-btn svg { width: 18px; height: 18px; }
-    .dl-btn .dl-dot {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #3b82f6;
-      box-shadow: 0 0 0 2px #0a1c38;
-      display: none;
-    }
-    .dl-btn.has-new .dl-dot { display: block; }
-    .dl-panel {
-      display: none;
-      position: absolute;
-      top: calc(100% + 0.55rem);
-      right: 0;
-      width: min(360px, calc(100vw - 1.5rem));
-      background: #fff;
-      color: var(--ink);
-      border: 1px solid #d8dee8;
-      border-radius: 12px;
-      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
-      z-index: 80;
-      overflow: hidden;
-    }
-    .dl-panel.open { display: block; }
-    .dl-panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.85rem 1rem 0.65rem;
-      border-bottom: 1px solid #edf1f6;
-    }
-    .dl-panel-head h3 {
-      margin: 0;
-      font-size: 0.92rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-    .dl-close {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      border: 1px solid #e2e8f0;
-      background: #f8fafc;
-      color: #64748b;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      padding: 0;
-      box-shadow: none;
-    }
-    .dl-close:hover { background: #eef2f7; transform: none; }
-    .dl-list {
-      max-height: 280px;
-      overflow: auto;
-      padding: 0.35rem 0;
-    }
-    .dl-empty {
-      padding: 1.1rem 1rem;
-      color: var(--muted);
-      font-size: 0.88rem;
-    }
-    .dl-item {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 36px 1fr;
-      gap: 0.7rem;
-      align-items: start;
-      text-align: left;
-      border: 0;
-      background: transparent;
-      padding: 0.7rem 1rem;
-      cursor: pointer;
-      border-radius: 0;
-      box-shadow: none;
-      color: inherit;
-    }
-    .dl-item:hover { background: #f5f8fc; transform: none; }
-    .dl-icon {
-      width: 36px;
-      height: 36px;
+    .titlebar-update {
+      -webkit-app-region: no-drag;
+      padding: 0.38rem 0.85rem;
+      font-size: 0.78rem;
       border-radius: 8px;
-      background: #fee2e2;
-      color: #b91c1c;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .dl-icon.pdf { background: #dbeafe; color: #1d4ed8; }
-    .dl-icon svg { width: 18px; height: 18px; }
-    .dl-name {
-      font-size: 0.88rem;
-      font-weight: 600;
-      line-height: 1.25;
-      word-break: break-word;
-    }
-    .dl-meta {
-      margin-top: 0.18rem;
-      font-size: 0.75rem;
-      color: #64748b;
-    }
-    .dl-panel-foot {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      padding: 0.7rem 1rem 0.85rem;
-      border-top: 1px solid #edf1f6;
-      background: #fbfcfe;
-    }
-    .dl-folder-link {
-      border: 0;
-      background: transparent;
-      color: #1d4ed8;
-      font-size: 0.84rem;
-      font-weight: 600;
-      padding: 0;
-      cursor: pointer;
+      background: rgba(255,255,255,0.10);
+      color: #e8eef8;
+      border: 1px solid rgba(255,255,255,0.16);
       box-shadow: none;
+      white-space: nowrap;
     }
-    .dl-folder-link:hover { text-decoration: underline; transform: none; }
+    .titlebar-update:hover { filter: brightness(1.1); transform: none; }
+    .titlebar-update.has-update {
+      background: #19a05c;
+      border-color: #19a05c;
+      color: #fff;
+    }
+    .titlebar-update-status {
+      max-width: 240px;
+      font-size: 0.72rem;
+      color: #9eb0cc;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .aspera-logo {
       height: 36px;
       width: auto;
@@ -784,13 +668,6 @@ PAGE = r"""
       font-weight: 700;
     }
     .checks { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.88rem; line-height: 1.7; }
-    .tools-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.9rem;
-      margin-top: 1rem;
-    }
-    .tools-grid .card { margin-top: 0; min-height: 150px; }
     .chip {
       display: inline-flex;
       align-items: center;
@@ -890,7 +767,7 @@ PAGE = r"""
     .switch-card .drop-toolbar { margin-top: 0; justify-content: flex-start; }
     .switch-card .choose-pdf-btn { width: auto; margin-top: 0; padding: 0.55rem 0.9rem; font-size: 0.82rem; }
     @media (max-width: 900px) {
-      .mode-grid, .stat-row, .insight-grid, .tools-grid, .work-grid, .work-facts, .switch-grid { grid-template-columns: 1fr; }
+      .mode-grid, .stat-row, .insight-grid, .work-grid, .work-facts, .switch-grid { grid-template-columns: 1fr; }
       .welcome, .work-hero { flex-direction: column; align-items: flex-start; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -911,26 +788,9 @@ PAGE = r"""
       </div>
       <button type="button" class="titlebar-back" id="homeBtn" hidden>Home</button>
       <div class="titlebar-actions">
-        <button type="button" class="dl-btn" id="downloadsBtn" title="Downloads" aria-label="Downloads" aria-expanded="false" aria-haspopup="true" aria-controls="downloadsPanel">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
-          <span class="dl-dot" aria-hidden="true"></span>
-        </button>
         <div class="titlebar-ver" aria-label="Version {{ version }}">{{ version }}</div>
-        <div class="dl-panel" id="downloadsPanel" hidden>
-          <div class="dl-panel-head">
-            <h3>Recent download history</h3>
-            <button type="button" class="dl-close" id="downloadsClose" title="Close" aria-label="Close">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
-            </button>
-          </div>
-          <div class="dl-list" id="downloadsList">
-            <div class="dl-empty">No recent downloads yet. Saved PDFs and reports will appear here.</div>
-          </div>
-          <div class="dl-panel-foot">
-            <button type="button" class="dl-folder-link" id="openDownloadsFolder">Open Downloads folder</button>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#64748b" stroke-width="2" aria-hidden="true"><path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 14v7H3V3h7"/></svg>
-          </div>
-        </div>
+        <button type="button" class="titlebar-update" id="updateBtn">Check for update</button>
+        <div class="titlebar-update-status" id="updateStatus" title="">Ready</div>
       </div>
     </header>
     <div class="app-body">
@@ -994,7 +854,6 @@ PAGE = r"""
           <li>Signer certificate chains to CCA India</li>
           <li>Amazon NOC and BSA agreement PDFs</li>
           <li>Batch verify for multiple pre-filled NOCs</li>
-          <li>Optional GST IRN helper (separate from DSC)</li>
         </ul>
       </section>
     </div>
@@ -1045,33 +904,8 @@ PAGE = r"""
         <div class="switch-grid" id="switchGrid"></div>
       </section>
     </div>
-
-    <div id="homeTools" class="tools-grid">
-    <details class="card">
-      <summary style="cursor:pointer;font-weight:600">Optional: GST IRN helper</summary>
-      <p class="meta" style="text-align:left;margin:0.6rem 0 0.8rem">Separate from PDF DSC verify. Paste a 64-character IRN or QR JSON text.</p>
-      <div class="field">
-        <label for="irnInput">IRN / QR payload</label>
-        <textarea id="irnInput" placeholder="Paste IRN (64 hex) or QR JSON"></textarea>
-      </div>
-      <div class="actions" style="justify-content:flex-start;margin-top:0">
-        <button type="button" class="secondary" id="irnBtn">Inspect IRN</button>
-      </div>
-      <pre id="irnOut" hidden style="margin-top:0.8rem"></pre>
-    </details>
-
-    <section class="card update-card">
-      <div class="update-row">
-        <div>
-          <h2 style="margin:0">App update</h2>
-          <div class="meta" style="text-align:left;margin:0.35rem 0 0">Current version: {{ version }}</div>
-        </div>
-        <button type="button" class="secondary" id="updateBtn">Check for update</button>
-      </div>
-      <div id="updateStatus" class="update-status">Ready</div>
-    </section>
+  </main>
     </div>
-    </main>
 
     <dialog class="update-dialog" id="updateDialog">
       <h3>Install update?</h3>
@@ -1081,7 +915,6 @@ PAGE = r"""
         <button type="button" class="success" id="updateInstallBtn">Install update</button>
       </div>
     </dialog>
-    </div>
     <footer class="statusbar">PDF Sign Verifier {{ version }} · Aspera · <span class="contributors">Contributors: Vijayalaxmi Nuti, Tarun Pandal, Amar Vallakatti, Balaji Dube</span> · Trust anchors: {{ root_count }} · Intermediates: {{ inter_count }} (CCA India)</footer>
   </div>
 
@@ -1107,183 +940,6 @@ PAGE = r"""
     let pendingUpdateVersion = '';
     let lastFile = null;
     let currentMode = '';  // 'verify' or 'blank' or 'bsa'
-    const downloadsBtn = document.getElementById('downloadsBtn');
-    const downloadsPanel = document.getElementById('downloadsPanel');
-    const downloadsList = document.getElementById('downloadsList');
-    const downloadsClose = document.getElementById('downloadsClose');
-    const openDownloadsFolder = document.getElementById('openDownloadsFolder');
-    let downloadsSeen = 0;
-
-    function formatBytes(n) {
-      const num = Number(n) || 0;
-      if (num < 1024) return `${num} B`;
-      if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
-      return `${(num / (1024 * 1024)).toFixed(1)} MB`;
-    }
-
-    function formatAgo(ts) {
-      const sec = Math.max(0, Math.floor(Date.now() / 1000 - Number(ts || 0)));
-      if (sec < 60) return 'Just now';
-      if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
-      if (sec < 86400) return `${Math.floor(sec / 3600)} hours ago`;
-      const days = Math.floor(sec / 86400);
-      return days === 1 ? '1 day ago' : `${days} days ago`;
-    }
-
-    function setDownloadsOpen(open) {
-      if (!downloadsPanel || !downloadsBtn) return;
-      downloadsPanel.hidden = !open;
-      downloadsPanel.classList.toggle('open', open);
-      downloadsBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (open) {
-        downloadsBtn.classList.remove('has-new');
-        refreshDownloads();
-      }
-    }
-
-    function renderDownloads(items) {
-      if (!downloadsList) return;
-      if (!items.length) {
-        downloadsList.innerHTML = '<div class="dl-empty">No recent downloads yet. Saved PDFs and reports will appear here.</div>';
-        return;
-      }
-      downloadsList.innerHTML = items.map((item) => {
-        const isPdf = String(item.name || '').toLowerCase().endsWith('.pdf');
-        const iconClass = isPdf ? 'pdf' : '';
-        const encoded = encodeURIComponent(String(item.path || ''));
-        return `
-          <button type="button" class="dl-item" data-path-enc="${encoded}" title="Open ${esc(item.name)}">
-            <span class="dl-icon ${iconClass}" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
-            </span>
-            <span>
-              <div class="dl-name">${esc(item.name)}</div>
-              <div class="dl-meta">${esc(formatBytes(item.size))} · ${esc(formatAgo(item.mtime))}</div>
-            </span>
-          </button>`;
-      }).join('');
-    }
-
-    function setDlStatus(text, isError) {
-      let el = document.getElementById('dlStatus');
-      if (!el && downloadsPanel) {
-        el = document.createElement('div');
-        el.id = 'dlStatus';
-        el.style.cssText = 'padding:0.55rem 1rem 0.75rem;font-size:0.78rem;color:#64748b;border-top:1px solid #edf1f6;';
-        downloadsPanel.appendChild(el);
-      }
-      if (!el) return;
-      el.style.color = isError ? '#b91c1c' : '#64748b';
-      el.textContent = text || '';
-      el.hidden = !text;
-    }
-
-    async function refreshDownloads() {
-      try {
-        const res = await fetch('/api/recent-downloads', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Could not load downloads');
-        const items = Array.isArray(data.items) ? data.items : [];
-        renderDownloads(items);
-        if (items.length > downloadsSeen) {
-          if (!(downloadsPanel && downloadsPanel.classList.contains('open'))) {
-            downloadsBtn?.classList.add('has-new');
-          }
-        }
-        downloadsSeen = items.length;
-      } catch (err) {
-        if (downloadsList) {
-          downloadsList.innerHTML = `<div class="dl-empty">${esc(String(err.message || err))}</div>`;
-        }
-      }
-    }
-
-    async function openDownloadPath(path) {
-      setDlStatus('Opening file…', false);
-      const res = await fetch('/api/open-path', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Could not open file');
-      setDlStatus('Opened — check your Files window or PDF viewer (it may be behind this app).', false);
-    }
-
-    async function openDownloadsDir() {
-      setDlStatus('Opening Downloads folder…', false);
-      const res = await fetch('/api/open-downloads-folder', { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Could not open Downloads folder');
-      setDlStatus('Downloads folder opened — check the Files window (it may be behind this app).', false);
-    }
-
-    async function recordDownload(name, path) {
-      try {
-        await fetch('/api/record-download', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name || '', path: path || '' }),
-        });
-        downloadsBtn?.classList.add('has-new');
-        if (downloadsPanel?.classList.contains('open')) await refreshDownloads();
-      } catch (_err) {
-        /* ignore tracking errors */
-      }
-    }
-
-    downloadsBtn?.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDownloadsOpen(!(downloadsPanel && downloadsPanel.classList.contains('open')));
-    });
-    downloadsClose?.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDownloadsOpen(false);
-    });
-    openDownloadsFolder?.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        await openDownloadsDir();
-      } catch (err) {
-        setDlStatus(String(err.message || err), true);
-        alert(String(err.message || err));
-      }
-    });
-    downloadsList?.addEventListener('click', async (e) => {
-      const item = e.target.closest('.dl-item');
-      if (!item) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const encoded = item.getAttribute('data-path-enc') || '';
-      let path = '';
-      try {
-        path = decodeURIComponent(encoded);
-      } catch (_err) {
-        path = encoded;
-      }
-      if (!path) {
-        setDlStatus('Missing file path.', true);
-        return;
-      }
-      try {
-        await openDownloadPath(path);
-      } catch (err) {
-        setDlStatus(String(err.message || err), true);
-        alert(String(err.message || err));
-      }
-    });
-    document.addEventListener('click', (e) => {
-      if (!downloadsPanel || !downloadsPanel.classList.contains('open')) return;
-      if (e.target.closest('.titlebar-actions')) return;
-      setDownloadsOpen(false);
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') setDownloadsOpen(false);
-    });
-    refreshDownloads();
 
     const BRANCH_OPTIONS = [
       'Latur Maharashtra',
@@ -1449,10 +1105,8 @@ PAGE = r"""
       if (homeBtn) homeBtn.hidden = true;
       const homeDash = document.getElementById('homeDash');
       const homeInfo = document.getElementById('homeInfo');
-      const homeTools = document.getElementById('homeTools');
       if (homeDash) homeDash.hidden = false;
       if (homeInfo) homeInfo.hidden = false;
-      if (homeTools) homeTools.hidden = false;
       result.innerHTML = '';
       fileInput.value = '';
       lastFile = null;
@@ -1492,10 +1146,8 @@ PAGE = r"""
       if (homeBtn) homeBtn.hidden = false;
       const homeDash = document.getElementById('homeDash');
       const homeInfo = document.getElementById('homeInfo');
-      const homeTools = document.getElementById('homeTools');
       if (homeDash) homeDash.hidden = true;
       if (homeInfo) homeInfo.hidden = true;
-      if (homeTools) homeTools.hidden = true;
       result.innerHTML = '';
       fileInput.value = '';
       lastFile = null;
@@ -1536,24 +1188,6 @@ PAGE = r"""
       if (files.length) handleFiles(files);
     });
 
-    document.getElementById('irnBtn')?.addEventListener('click', async () => {
-      const text = document.getElementById('irnInput')?.value?.trim() || '';
-      const out = document.getElementById('irnOut');
-      if (!text) { alert('Paste an IRN or QR payload first.'); return; }
-      const body = new FormData();
-      body.append('payload', text);
-      try {
-        const res = await fetch('/api/irn-inspect', { method: 'POST', body });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'IRN inspect failed');
-        out.hidden = false;
-        out.textContent = JSON.stringify(data, null, 2);
-      } catch (err) {
-        out.hidden = false;
-        out.textContent = String(err.message || err);
-      }
-    });
-
     updateBtn?.addEventListener('click', runAppUpdate);
     updateLaterBtn?.addEventListener('click', () => {
       if (pendingUpdateVersion) sessionStorage.setItem('psv-update-later', pendingUpdateVersion);
@@ -1571,12 +1205,20 @@ PAGE = r"""
         const res = await fetch('/api/app-update/status');
         const data = await res.json().catch(() => ({}));
         if (data.update_available) {
-          updateStatus.textContent = `Update available: ${data.latest_version} (you have ${data.current_version})`;
-          if (updateBtn) updateBtn.textContent = 'Download update';
+          const msg = `Update available: ${data.latest_version} (you have ${data.current_version})`;
+          updateStatus.textContent = msg;
+          updateStatus.title = msg;
+          if (updateBtn) {
+            updateBtn.textContent = 'Download update';
+            updateBtn.classList.add('has-update');
+          }
           const skipped = sessionStorage.getItem('psv-update-later');
           if (autoStart && skipped !== data.latest_version) await runAppUpdate();
         } else if (data.latest_version) {
-          updateStatus.textContent = `Ready · latest is ${data.latest_version}`;
+          const msg = `Ready · latest is ${data.latest_version}`;
+          updateStatus.textContent = msg;
+          updateStatus.title = msg;
+          updateBtn?.classList.remove('has-update');
         }
       } catch (err) {
         /* stay on Ready if offline */
@@ -1595,8 +1237,10 @@ PAGE = r"""
         if (!statusRes.ok) throw new Error(status.error || 'Could not check for update');
         if (!status.update_available) {
           updateStatus.textContent = `Already up to date (${status.current_version}).`;
+          updateBtn.classList.remove('has-update');
           return;
         }
+        updateBtn.classList.add('has-update');
         // Always download fresh when versions don't match — never reuse a stale .deb.
         updateBtn.textContent = 'Downloading...';
         updateStatus.textContent = `Downloading ${status.latest_version}...`;
@@ -1795,7 +1439,6 @@ PAGE = r"""
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        await recordDownload(handle.name || suggestedName, '');
         return handle.name || suggestedName;
       }
       if (typeof window.showSaveFilePicker === 'function') {
@@ -1806,7 +1449,6 @@ PAGE = r"""
         const writable = await picked.createWritable();
         await writable.write(blob);
         await writable.close();
-        await recordDownload(picked.name || suggestedName, '');
         return picked.name || suggestedName;
       }
       const url = URL.createObjectURL(blob);
@@ -1834,14 +1476,12 @@ PAGE = r"""
           }
           frame.src = info.url;
           showManualSaveLink(info.url, suggestedName);
-          await recordDownload(info.name || suggestedName, info.saved_path || '');
           return suggestedName;
         }
       } catch (err) {
         /* keep blob link below */
       }
       showManualSaveLink(url, suggestedName);
-      await recordDownload(suggestedName, '');
       return suggestedName;
     }
 
