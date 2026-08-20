@@ -93,32 +93,7 @@ PAGE = r"""
         radial-gradient(700px 380px at 100% 0%, rgba(15,107,86,0.12), transparent 46%),
         linear-gradient(180deg, #e8eef6 0%, #eef3f8 42%, #e7eee9 100%);
     }
-    .os-titlebar {
-      flex: 0 0 auto;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0 0 0 0.9rem;
-      background: linear-gradient(180deg, #ffffff 0%, #f3f5f8 100%);
-      border-bottom: 1px solid #d5dbe5;
-      color: #1f2937;
-      -webkit-app-region: drag;
-      user-select: none;
-    }
-    /* Chrome --app already has a system/caption bar — never stack a second one. */
-    html[data-shell="chrome"] .os-titlebar { display: none !important; }
-    .os-titlebar-title {
-      flex: 1;
-      min-width: 0;
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: #334155;
-      letter-spacing: -0.01em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+    .os-titlebar { display: none !important; }
     .titlebar {
       flex: 0 0 auto;
       display: flex;
@@ -156,33 +131,8 @@ PAGE = r"""
       -webkit-app-region: no-drag;
       position: relative;
     }
-    .win-controls {
-      display: inline-flex;
-      align-items: stretch;
-      margin-left: auto;
-      -webkit-app-region: no-drag;
-    }
-    .win-btn {
-      width: 46px;
-      height: 36px;
-      border: 0;
-      border-radius: 0;
-      background: transparent;
-      color: #334155;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      padding: 0;
-      box-shadow: none;
-    }
-    .win-btn:hover { background: #e5e7eb; filter: none; transform: none; }
-    .win-btn.close:hover {
-      background: #e81123;
-      color: #fff;
-      filter: none;
-    }
-    .win-btn svg { width: 12px; height: 12px; pointer-events: none; }
+    .win-controls { display: none !important; }
+    .win-btn { display: none !important; }
     .titlebar-ver {
       font-size: 0.78rem;
       color: #d7e3f5;
@@ -952,31 +902,7 @@ PAGE = r"""
   </style>
 </head>
 <body>
-  <script>
-    (function () {
-      try {
-        var shell = new URLSearchParams(window.location.search).get('shell') || 'native';
-        document.documentElement.setAttribute('data-shell', shell);
-      } catch (e) {
-        document.documentElement.setAttribute('data-shell', 'native');
-      }
-    })();
-  </script>
   <div class="app-shell">
-    <header class="os-titlebar" id="osTitlebar">
-      <div class="os-titlebar-title">PDF Sign Verifier</div>
-      <div class="win-controls" role="group" aria-label="Window controls">
-        <button type="button" class="win-btn" id="winMinimize" title="Minimize" aria-label="Minimize">
-          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6h8"/></svg>
-        </button>
-        <button type="button" class="win-btn" id="winMaximize" title="Maximize" aria-label="Maximize">
-          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="0.8"/></svg>
-        </button>
-        <button type="button" class="win-btn close" id="winClose" title="Close" aria-label="Close">
-          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
-        </button>
-      </div>
-    </header>
     <header class="titlebar">
       <img class="aspera-logo" src="/brand/aspera-logo.png" alt="Aspera" />
       <div class="titlebar-text">
@@ -1358,35 +1284,6 @@ PAGE = r"""
       if (e.key === 'Escape') setDownloadsOpen(false);
     });
     refreshDownloads();
-
-    async function windowAction(action) {
-      try {
-        const res = await fetch('/api/window/' + action, { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || ('Could not ' + action + ' window'));
-        if (action === 'close') {
-          try { window.close(); } catch (_e) {}
-        }
-      } catch (err) {
-        if (action === 'close') {
-          try { window.close(); } catch (_e) {}
-        } else {
-          console.warn(err);
-        }
-      }
-    }
-    document.getElementById('winMinimize')?.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      windowAction('minimize');
-    });
-    document.getElementById('winMaximize')?.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      windowAction('toggle-maximize');
-    });
-    document.getElementById('winClose')?.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      windowAction('close');
-    });
 
     const BRANCH_OPTIONS = [
       'Latur Maharashtra',
@@ -3681,26 +3578,20 @@ def _relaunch_and_exit() -> None:
 
 
 def _chrome_profile_running() -> bool:
-    """True when our Chrome --app profile process is still alive."""
+    """True when a Chrome process we launched for the local app URL is alive."""
     try:
         listing = subprocess.check_output(["ps", "-eo", "args"], text=True, errors="ignore")
     except Exception:
         return False
-    marker = str(_APP_CACHE)
     return any(
-        marker in line and "--app=" in line
+        ("google-chrome" in line or "chromium" in line)
+        and "127.0.0.1:876" in line
         for line in listing.splitlines()
     )
 
 
 def _watch_window_and_exit(chrome: subprocess.Popen | None = None) -> None:
-    """Keep the Flask backend alive until the UI process/window is gone.
-
-    Earlier builds returned after ~10s when the window class could not be
-    detected. That killed the daemon Flask thread while Chrome stayed open,
-    which produced 'Failed to fetch' on every workflow.
-    """
-    # Give the UI a moment to appear.
+    """Keep the Flask backend alive until the Chrome window/process is gone."""
     for _ in range(40):
         if (chrome and chrome.poll() is None) or _app_window_open() or _chrome_profile_running():
             break
@@ -3716,7 +3607,7 @@ def _watch_window_and_exit(chrome: subprocess.Popen | None = None) -> None:
             missing = 0
             continue
         missing += 1
-        if missing >= 5:
+        if missing >= 8:
             os._exit(0)
 
 
@@ -3846,9 +3737,13 @@ def _activate_existing_instance(host: str, preferred_port: int) -> None:
         server_up = True
     except Exception:
         server_up = False
-    if server_up and _open_chrome_app_window(url):
-        threading.Thread(target=_maximize_when_ready, daemon=True).start()
-        print("PDF Sign Verifier is already running — reopened the app window.")
+    if server_up:
+        chrome = _open_default_chrome(url)
+        if chrome:
+            print("PDF Sign Verifier is already running — reopened in Chrome.")
+            return
+        webbrowser.open(url)
+        print("PDF Sign Verifier is already running — opened in the default browser.")
         return
     _raise_and_maximize_window(maximize=False)
     print("PDF Sign Verifier is already running.")
@@ -3913,93 +3808,18 @@ def _configure_native_window_identity() -> None:
 
 
 def _open_pywebview_window(url: str) -> bool:
-    """Native GTK/WebKit window — one dock icon, matches pdf-sign-verifier.desktop."""
-    if not _gi_available():
-        return False
-    try:
-        _configure_native_window_identity()
-        import logging
-
-        logging.getLogger("pywebview").setLevel(logging.ERROR)
-        import webview
-    except Exception:
-        return False
-    threading.Thread(target=_adopt_running_window, kwargs={"timeout": 12.0}, daemon=True).start()
-    native_url = _with_shell_query(url, "native")
-    try:
-        try:
-            webview.create_window(
-                "PDF Sign Verifier",
-                native_url,
-                width=1400,
-                height=900,
-                min_size=(880, 620),
-                maximized=True,
-                frameless=True,
-                easy_drag=False,
-            )
-        except TypeError:
-            try:
-                webview.create_window(
-                    "PDF Sign Verifier",
-                    native_url,
-                    width=1400,
-                    height=900,
-                    min_size=(880, 620),
-                    maximized=True,
-                    frameless=True,
-                )
-            except TypeError:
-                webview.create_window(
-                    "PDF Sign Verifier",
-                    native_url,
-                    width=1400,
-                    height=900,
-                    min_size=(880, 620),
-                    maximized=True,
-                )
-        webview.start(gui="gtk")
-        return True
-    except Exception as exc:
-        print(f"Native window unavailable ({exc}).")
-        return False
+    """Disabled: the UI now opens in Google Chrome so downloads and window
+    controls stay native. Kept as a stub so older call sites stay safe.
+    """
+    return False
 
 
-def _ensure_chrome_system_titlebar(profile: Path) -> None:
-    """Force Chrome/Chromium to use the desktop title bar (min/max/close)."""
-    default_dir = profile / "Default"
-    default_dir.mkdir(parents=True, exist_ok=True)
-    prefs_path = default_dir / "Preferences"
-    data: dict = {}
-    if prefs_path.is_file():
-        try:
-            data = json.loads(prefs_path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                data = {}
-        except Exception:
-            data = {}
-    browser = data.setdefault("browser", {})
-    if not isinstance(browser, dict):
-        browser = {}
-        data["browser"] = browser
-    # False => use system title bar and borders (Linux Mint / GNOME / Cinnamon).
-    browser["custom_chrome_frame"] = False
-    try:
-        prefs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+def _open_default_chrome(url: str) -> subprocess.Popen | None:
+    """Open in a normal Google Chrome / Chromium window (not --app).
 
-
-def _with_shell_query(url: str, shell: str) -> str:
-    join = "&" if "?" in url else "?"
-    return f"{url}{join}shell={shell}"
-
-
-def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
-    profile = _APP_CACHE
-    profile.mkdir(parents=True, exist_ok=True)
-    _ensure_chrome_system_titlebar(profile)
-    chrome_url = _with_shell_query(url, "chrome")
+    Uses the user's real Chrome profile so Downloads, min/max/close, and
+    tabs work exactly like everyday browsing.
+    """
     binaries = (
         "google-chrome",
         "google-chrome-stable",
@@ -4010,8 +3830,6 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
         "brave-browser",
     )
     env = os.environ.copy()
-    env["CHROME_DESKTOP"] = "pdf-sign-verifier.desktop"
-    env["GOOGLE_CHROME_DESKTOP"] = "pdf-sign-verifier.desktop"
     for name in binaries:
         path = shutil.which(name)
         if not path:
@@ -4019,15 +3837,10 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
         return subprocess.Popen(
             [
                 path,
-                f"--class={_WM_CLASS}",
-                f"--app={chrome_url}",
-                f"--user-data-dir={profile}",
+                "--new-window",
+                url,
                 "--no-first-run",
                 "--no-default-browser-check",
-                "--start-maximized",
-                # Prefer OS window controls (min/max/close) over Chrome's Close-only CSD.
-                "--enable-features=SystemTitleBar",
-                "--disable-features=CustomTitleBar",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -4050,16 +3863,11 @@ def _focus_running_app(host: str, port: int, open_browser: bool) -> None:
     if _app_window_open():
         _raise_and_maximize_window(maximize=False)
         return
-    if open_browser and _open_chrome_app_window(url):
-        threading.Thread(
-            target=_adopt_running_window, kwargs={"timeout": 8.0, "maximize": True}, daemon=True
-        ).start()
-        return
     if open_browser:
+        chrome = _open_default_chrome(url)
+        if chrome:
+            return
         webbrowser.open(url)
-        threading.Thread(
-            target=_adopt_running_window, kwargs={"timeout": 8.0, "maximize": True}, daemon=True
-        ).start()
 
 
 def _start_app(host: str, port: int, open_browser: bool) -> None:
@@ -4086,19 +3894,16 @@ def _start_app(host: str, port: int, open_browser: bool) -> None:
     flask_thread.start()
     _wait_for_server(url)
 
-    if _open_pywebview_window(url):
+    print("Opened in Google Chrome. The local server stays running until you close this process.")
+    chrome = _open_default_chrome(url)
+    if not chrome:
+        webbrowser.open(url)
+    # Chrome --new-window often returns immediately if Chrome is already running.
+    # Keep serving until this process is stopped (menu launcher stays in background).
+    try:
+        flask_thread.join()
+    except KeyboardInterrupt:
         os._exit(0)
-
-    print("Keep this terminal open while the app is running.")
-    chrome = _open_chrome_app_window(url)
-    if chrome:
-        _maximize_when_ready()
-        _watch_window_and_exit(chrome)
-        return
-    webbrowser.open(url)
-    _watch_window_and_exit(None)
-    # Last resort: never drop the backend while this process is the owner.
-    flask_thread.join()
 
 
 def run(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
