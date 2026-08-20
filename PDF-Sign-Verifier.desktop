@@ -8,5 +8,3 @@ Terminal=false
 Categories=Office;Utility;
 Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
 StartupNotify=true
-StartupWMClass=pdf-sign-verifier
-SingleMainWindow=true

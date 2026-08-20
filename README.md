@@ -49,7 +49,7 @@ sudo apt install ./pdf-sign-verifier_*_amd64.deb
 pdf-sign-verifier
 ```
 
-Works on Linux Mint XFCE, Ubuntu, and Debian. No special Python version needed.
+Works on Linux Mint XFCE, Ubuntu, and Debian. No special Python version needed. The UI opens in **Google Chrome** (or Chromium / Edge / Brave if Chrome is missing).
 
 Rebuild:
 
@@ -67,7 +67,7 @@ cd SignVerifierForLinux
 ## Quick start
 
 ```bash
-./run.sh                  # web UI → http://127.0.0.1:8765
+./run.sh                  # local web UI in Google Chrome → http://127.0.0.1:8765
 ./run.sh --cli file.pdf   # terminal check
 ./run.sh --cli file.pdf --report ~/Downloads/report.pdf
 ./run.sh --batch ~/Documents/signed-pdfs --json
@@ -126,7 +126,7 @@ curl -sS -F pdf=@signed.pdf http://127.0.0.1:8765/api/v1/verify | jq .overall
 
 ## Optional GST IRN helper
 
-e-Invoice IRN / signed QR is a **separate** trust path from PDF DSC signatures. Use `--irn` or the UI helper to inspect IRN-shaped values. Online IRP lookup is opt-in via `PDF_SIGN_VERIFIER_IRN_URL`.
+e-Invoice IRN / signed QR is a **separate** trust path from PDF DSC signatures. Use `--irn` to inspect IRN-shaped values. Online IRP lookup is opt-in via `PDF_SIGN_VERIFIER_IRN_URL`.
 
 ## Results
 

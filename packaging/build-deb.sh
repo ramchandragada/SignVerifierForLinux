@@ -32,10 +32,7 @@ if [[ "${1:-}" != "--local" ]]; then
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
       apt-get install -y -qq python3 python3-venv python3-pip dpkg-dev binutils \
-        fonts-liberation fonts-urw-base35 file \
-        libgirepository1.0-dev gcc python3-dev libcairo2-dev pkg-config \
-        gobject-introspection gir1.2-gtk-3.0 libgtk-3-dev \
-        gir1.2-webkit2-4.0 >/dev/null
+        fonts-liberation fonts-urw-base35 file gcc python3-dev >/dev/null
       cp -a /src /build
       cd /build
       rm -rf /build/dist/stage /build/dist/*.deb /build/build /build/dist/pyi
@@ -64,20 +61,6 @@ cp -n /usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf "${ROOT}/packa
 cp -n /usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
 cp -n /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
 cp -n /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf "${ROOT}/packaging/bundle-fonts/" 2>/dev/null || true
-
-# PyGObject is required so pywebview can open a native GTK window in the frozen app.
-echo "==> Installing GTK/WebKit build libraries..."
-export DEBIAN_FRONTEND=noninteractive
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get install -y -qq --no-install-recommends \
-    libgirepository1.0-dev gcc python3-dev libcairo2-dev pkg-config \
-    gobject-introspection gir1.2-gtk-3.0 libgtk-3-dev \
-    gir1.2-webkit2-4.1 gir1.2-webkit2-4.0 2>/dev/null || \
-  apt-get install -y -qq --no-install-recommends \
-    libgirepository1.0-dev gcc python3-dev libcairo2-dev pkg-config \
-    gobject-introspection gir1.2-gtk-3.0 libgtk-3-dev \
-    gir1.2-webkit2-4.0 2>/dev/null || true
-fi
 
 echo "==> Creating build venv + installing deps + PyInstaller..."
 python3 -m venv "${DIST_DIR}/build-venv"
@@ -119,15 +102,6 @@ pyinstaller \
   --hidden-import pdf_sign_verifier.noc_fields \
   --hidden-import pdf_sign_verifier.batch \
   --hidden-import pdf_sign_verifier.irn_qr \
-  --hidden-import webview \
-  --hidden-import gi \
-  --hidden-import gi.repository.Gdk \
-  --hidden-import gi.repository.GLib \
-  --hidden-import gi.repository.Gtk \
-  --hidden-import gi.repository.WebKit2 \
-  --hidden-import gi.repository.Soup \
-  --collect-all gi \
-  --collect-all webview \
   --add-data "${ROOT}/trust:trust" \
   --add-data "${ROOT}/packaging/bundle-fonts:fonts" \
   --add-data "${ROOT}/pdf_sign_verifier/static:static" \
@@ -137,46 +111,10 @@ pyinstaller \
 cp -a "${DIST_DIR}/pyi/pdf-sign-verifier/." "${STAGE}/opt/${PKG_NAME}/"
 chmod 0755 "${STAGE}/opt/${PKG_NAME}/pdf-sign-verifier"
 
-# Launcher — clears stale backends before the frozen binary starts
+# Launcher — Flask backend + browser UI
 cat > "${STAGE}/usr/bin/pdf-sign-verifier" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
-APP_ID="pdf-sign-verifier"
-STATE_DIR="${HOME}/.cache/pdf-sign-verifier"
-LOCK_FILE="${STATE_DIR}/instance.lock"
-
-_window_visible() {
-  if command -v wmctrl >/dev/null 2>&1; then
-    wmctrl -lx 2>/dev/null | grep -Eiq "(${APP_ID}|pdf sign verifier)" && return 0
-  fi
-  if command -v xdotool >/dev/null 2>&1; then
-    xdotool search --class "${APP_ID}" >/dev/null 2>&1 && return 0
-  fi
-  return 1
-}
-
-_cleanup_stale() {
-  _window_visible && return 0
-  if [[ -f "${LOCK_FILE}" ]]; then
-    pid="$(tr -d ' \n\r' < "${LOCK_FILE}" 2>/dev/null || true)"
-    if [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
-      kill "${pid}" 2>/dev/null || true
-      for _ in $(seq 1 25); do
-        kill -0 "${pid}" 2>/dev/null || break
-        sleep 0.1
-      done
-      kill -9 "${pid}" 2>/dev/null || true
-    fi
-  fi
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -f "pdf-sign-verifier-app.*--app=" 2>/dev/null || true
-  fi
-}
-
-_cleanup_stale
-export GTK_APPLICATION_ID="${APP_ID}"
-export APP_ID="${APP_ID}"
 exec /opt/pdf-sign-verifier/pdf-sign-verifier "$@"
 EOF
 chmod 0755 "${STAGE}/usr/bin/pdf-sign-verifier"
@@ -201,8 +139,6 @@ Terminal=false
 Categories=Office;Utility;
 Keywords=PDF;Signature;DSC;NOC;Verify;Mint;Ubuntu;Debian;
 StartupNotify=true
-StartupWMClass=pdf-sign-verifier
-SingleMainWindow=true
 EOF
 
 install -m 0644 "${ROOT}/README.md" "${STAGE}/usr/share/doc/${PKG_NAME}/README.md"
@@ -222,8 +158,8 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: libc6, libgtk-3-0, libgirepository-1.0-1, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
-Recommends: fonts-liberation | fonts-dejavu-core, wmctrl, xdotool
+Depends: libc6
+Recommends: fonts-liberation | fonts-dejavu-core
 Maintainer: Ramchandra Gada <ramchandragada@users.noreply.github.com>
 Description: Verify PDF digital signatures (Indian DSC / Amazon NOC)
  Self-contained Linux tool to cryptographically verify PDF signatures
@@ -249,7 +185,7 @@ if command -v update-icon-caches >/dev/null 2>&1; then
 fi
 echo "PDF Sign Verifier installed."
 echo "  Run:  pdf-sign-verifier"
-echo "  Or open 'PDF Sign Verifier' from the application menu."
+echo "  Or open 'PDF Sign Verifier' from the application menu (opens in your browser)."
 EOF
 chmod 0755 "${STAGE}/DEBIAN/postinst"
 

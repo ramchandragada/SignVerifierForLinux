@@ -93,7 +93,6 @@ PAGE = r"""
         radial-gradient(700px 380px at 100% 0%, rgba(15,107,86,0.12), transparent 46%),
         linear-gradient(180deg, #e8eef6 0%, #eef3f8 42%, #e7eee9 100%);
     }
-    .os-titlebar { display: none !important; }
     .titlebar {
       flex: 0 0 auto;
       display: flex;
@@ -103,7 +102,6 @@ PAGE = r"""
       background: linear-gradient(90deg, #06101f 0%, #0a1c38 55%, #0b2748 100%);
       color: #fff;
       border-bottom: 1px solid rgba(183,182,244,0.16);
-      -webkit-app-region: drag;
     }
     .titlebar-text {
       min-width: 0;
@@ -128,11 +126,8 @@ PAGE = r"""
       align-items: center;
       gap: 0.45rem;
       margin-left: auto;
-      -webkit-app-region: no-drag;
       position: relative;
     }
-    .win-controls { display: none !important; }
-    .win-btn { display: none !important; }
     .titlebar-ver {
       font-size: 0.78rem;
       color: #d7e3f5;
@@ -140,10 +135,8 @@ PAGE = r"""
       border: 1px solid rgba(255,255,255,0.14);
       border-radius: 999px;
       padding: 0.28rem 0.7rem;
-      -webkit-app-region: no-drag;
     }
     .titlebar-update {
-      -webkit-app-region: no-drag;
       padding: 0.38rem 0.85rem;
       font-size: 0.78rem;
       border-radius: 8px;
@@ -177,10 +170,8 @@ PAGE = r"""
       background: transparent;
       box-shadow: none;
       border-radius: 0;
-      -webkit-app-region: no-drag;
     }
     .titlebar-back {
-      -webkit-app-region: no-drag;
       padding: 0.38rem 0.85rem;
       font-size: 0.78rem;
       border-radius: 8px;
@@ -328,7 +319,6 @@ PAGE = r"""
       border: 1px solid rgba(15,107,86,0.14);
     }
     .titlebar .titlebar-back {
-      -webkit-app-region: no-drag;
       padding: 0.38rem 0.85rem;
       font-size: 0.78rem;
       border-radius: 8px;
@@ -2327,7 +2317,6 @@ def _is_visual_noc_export(path: Path) -> bool:
 
 
 _PREPARED_DOWNLOADS: dict[str, tuple[bytes, str, float]] = {}
-_DOWNLOAD_HISTORY_PATH = Path.home() / ".cache" / "pdf-sign-verifier" / "download-history.json"
 
 
 def _downloads_dir() -> Path:
@@ -2373,330 +2362,6 @@ def _unique_download_path(name: str) -> Path:
     return folder / f"{stem}-{uuid.uuid4().hex[:6]}{suffix}"
 
 
-def _load_download_history() -> list[dict]:
-    try:
-        data = json.loads(_DOWNLOAD_HISTORY_PATH.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
-    except Exception:
-        pass
-    return []
-
-
-def _save_download_history(items: list[dict]) -> None:
-    _DOWNLOAD_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _DOWNLOAD_HISTORY_PATH.write_text(
-        json.dumps(items[:40], indent=2),
-        encoding="utf-8",
-    )
-
-
-def _record_download_entry(path: Path, name: str | None = None) -> dict | None:
-    try:
-        resolved = path.expanduser().resolve()
-    except Exception:
-        return None
-    if not resolved.is_file():
-        return None
-    try:
-        st = resolved.stat()
-    except OSError:
-        return None
-    entry = {
-        "name": name or resolved.name,
-        "path": str(resolved),
-        "size": int(st.st_size),
-        "mtime": int(st.st_mtime),
-    }
-    items = [entry]
-    for old in _load_download_history():
-        if str(old.get("path") or "") == entry["path"]:
-            continue
-        items.append(old)
-    _save_download_history(items)
-    return entry
-
-
-def _scan_downloads_folder(limit: int = 20) -> list[dict]:
-    folder = _downloads_dir()
-    if not folder.is_dir():
-        return []
-    rows: list[dict] = []
-    try:
-        candidates = list(folder.iterdir())
-    except OSError:
-        return []
-    for path in candidates:
-        if not path.is_file():
-            continue
-        low = path.name.lower()
-        if not (low.endswith(".pdf") or low.endswith(".deb")):
-            continue
-        # Prefer app-related files; still include other recent PDFs.
-        related = (
-            low.endswith(".pdf")
-            or "signature_valid" in low
-            or "verification_report" in low
-            or low.endswith("_filled.pdf")
-            or low.startswith("pdf-sign-verifier_")
-        )
-        if not related:
-            continue
-        try:
-            st = path.stat()
-        except OSError:
-            continue
-        # Only show files touched in the last 14 days.
-        if time.time() - st.st_mtime > 14 * 86400:
-            continue
-        rows.append(
-            {
-                "name": path.name,
-                "path": str(path.resolve()),
-                "size": int(st.st_size),
-                "mtime": int(st.st_mtime),
-            }
-        )
-    rows.sort(key=lambda x: x["mtime"], reverse=True)
-    return rows[:limit]
-
-
-def _recent_download_items(limit: int = 15) -> list[dict]:
-    by_path: dict[str, dict] = {}
-    for item in _load_download_history() + _scan_downloads_folder(limit=30):
-        path = str(item.get("path") or "")
-        if not path:
-            continue
-        p = Path(path)
-        if not p.is_file():
-            continue
-        try:
-            st = p.stat()
-            item = {
-                "name": item.get("name") or p.name,
-                "path": str(p.resolve()),
-                "size": int(st.st_size),
-                "mtime": int(st.st_mtime),
-            }
-        except OSError:
-            continue
-        by_path[path] = item
-    items = sorted(by_path.values(), key=lambda x: x["mtime"], reverse=True)
-    return items[:limit]
-
-
-def _session_env() -> dict[str, str]:
-    """Build an env that can talk to the user's graphical session."""
-    env = os.environ.copy()
-    uid = os.getuid()
-    runtime = Path(f"/run/user/{uid}")
-    if "XDG_RUNTIME_DIR" not in env and runtime.is_dir():
-        env["XDG_RUNTIME_DIR"] = str(runtime)
-    bus = runtime / "bus"
-    if bus.exists():
-        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus}"
-    # DISPLAY is required for X11 openers; fall back to :0 when missing.
-    if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
-        if Path("/tmp/.X11-unix/X0").exists():
-            env["DISPLAY"] = ":0"
-    if "XAUTHORITY" not in env:
-        xauth = Path.home() / ".Xauthority"
-        if xauth.is_file():
-            env["XAUTHORITY"] = str(xauth)
-    return env
-
-
-def _spawn_detached(cmd: list[str], env: dict[str, str]) -> bool:
-    """Start a GUI helper and return True if the process launched."""
-    try:
-        # Prefer launching inside the user systemd session when available —
-        # this is the most reliable way out of a frozen app / Chrome --app host.
-        if shutil.which("systemd-run"):
-            wrapped = ["systemd-run", "--user", "--collect", "--quiet"]
-            for key in (
-                "DISPLAY",
-                "WAYLAND_DISPLAY",
-                "XAUTHORITY",
-                "DBUS_SESSION_BUS_ADDRESS",
-                "XDG_RUNTIME_DIR",
-                "XDG_CURRENT_DESKTOP",
-            ):
-                val = env.get(key) or ""
-                if val:
-                    wrapped.append(f"--setenv={key}={val}")
-            wrapped.extend(cmd)
-            proc = subprocess.Popen(
-                wrapped,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            time.sleep(0.2)
-            if proc.poll() in (None, 0):
-                return True
-        proc = subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=False,
-        )
-        time.sleep(0.15)
-        return proc.poll() in (None, 0)
-    except Exception:
-        return False
-
-
-def _file_managers() -> list[str]:
-    # Prefer Mint/Cinnamon's Nemo, then common Linux FMs.
-    names = ("nemo", "caja", "nautilus", "thunar", "dolphin", "pcmanfm", "xdg-open")
-    return [n for n in names if shutil.which(n)]
-
-
-def _mime_handler(mime: str) -> list[str] | None:
-    if not shutil.which("xdg-mime"):
-        return None
-    try:
-        desktop = subprocess.check_output(
-            ["xdg-mime", "query", "default", mime],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=3,
-        ).strip()
-    except Exception:
-        return None
-    if not desktop:
-        return None
-    # Map .desktop id to an executable when possible.
-    mapping = {
-        "org.gnome.Evince.desktop": "evince",
-        "org.gnome.Papers.desktop": "papers",
-        "org.kde.okular.desktop": "okular",
-        "atril.desktop": "atril",
-        "xreader.desktop": "xreader",
-        "org.gnome.Nautilus.desktop": "nautilus",
-        "nemo.desktop": "nemo",
-        "org.nemo.desktop": "nemo",
-        "firefox.desktop": "firefox",
-        "google-chrome.desktop": "google-chrome",
-        "chromium_chromium.desktop": "chromium",
-        "chromium-browser.desktop": "chromium-browser",
-    }
-    exe = mapping.get(desktop)
-    if exe and shutil.which(exe):
-        return [exe]
-    # Generic: gtk-launch <desktop-id>
-    if shutil.which("gtk-launch"):
-        return ["gtk-launch", desktop.replace(".desktop", "")]
-    return None
-
-
-def _open_local_path(path: Path) -> None:
-    """Open a file or folder so the user actually sees a window on Mint/Cinnamon."""
-    resolved = path.expanduser().resolve()
-    if not resolved.exists():
-        raise FileNotFoundError(f"File not found: {resolved}")
-
-    env = _session_env()
-    uri = resolved.as_uri()
-    errors: list[str] = []
-
-    def _note(msg: str) -> None:
-        errors.append(msg)
-
-    # --- Folders: open with a real file manager first ---
-    if resolved.is_dir():
-        for fm in _file_managers():
-            if _spawn_detached([fm, str(resolved)], env):
-                return
-            _note(f"folder opener failed: {fm}")
-        if shutil.which("dbus-send") and _spawn_detached(
-            [
-                "dbus-send",
-                "--session",
-                "--dest=org.freedesktop.FileManager1",
-                "--type=method_call",
-                "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1.ShowFolders",
-                f"array:string:{uri}",
-                "string:",
-            ],
-            env,
-        ):
-            return
-        raise RuntimeError(
-            "Could not open Downloads folder. "
-            + (" | ".join(errors) if errors else "Install nemo or xdg-utils.")
-        )
-
-    # --- Files: reveal in file manager (most reliable), then open with viewer ---
-    revealed = False
-    for fm in _file_managers():
-        if fm == "xdg-open":
-            continue
-        if _spawn_detached([fm, str(resolved.parent)], env):
-            revealed = True
-            if shutil.which("dbus-send"):
-                _spawn_detached(
-                    [
-                        "dbus-send",
-                        "--session",
-                        "--dest=org.freedesktop.FileManager1",
-                        "--type=method_call",
-                        "/org/freedesktop/FileManager1",
-                        "org.freedesktop.FileManager1.ShowItems",
-                        f"array:string:{uri}",
-                        "string:",
-                    ],
-                    env,
-                )
-            break
-        _note(f"reveal failed: {fm}")
-
-    if not revealed and shutil.which("dbus-send"):
-        revealed = _spawn_detached(
-            [
-                "dbus-send",
-                "--session",
-                "--dest=org.freedesktop.FileManager1",
-                "--type=method_call",
-                "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1.ShowItems",
-                f"array:string:{uri}",
-                "string:",
-            ],
-            env,
-        )
-
-    # Open with the MIME default viewer (PDF reader, etc.).
-    opened = False
-    mime = "application/pdf" if resolved.suffix.lower() == ".pdf" else "application/octet-stream"
-    if resolved.suffix.lower() == ".deb":
-        mime = "application/vnd.debian.binary-package"
-    handler = _mime_handler(mime)
-    if handler and _spawn_detached([*handler, str(resolved)], env):
-        opened = True
-    elif shutil.which("xdg-open") and _spawn_detached(["xdg-open", str(resolved)], env):
-        opened = True
-    elif shutil.which("gio") and _spawn_detached(["gio", "open", str(resolved)], env):
-        opened = True
-    elif resolved.suffix.lower() == ".pdf":
-        for viewer in ("xreader", "evince", "atril", "okular", "papers"):
-            if shutil.which(viewer) and _spawn_detached([viewer, str(resolved)], env):
-                opened = True
-                break
-
-    if opened or revealed:
-        # Bring the file manager / viewer above our Chrome --app window.
-        for title in ("Downloads", "Home", "Files", "File Manager", "Nemo", "xreader", "Document Viewer", "Evince"):
-            _run_quiet(["wmctrl", "-a", title])
-        return
-
-    raise RuntimeError(
-        "Could not open file. " + (" | ".join(errors) if errors else "No opener available.")
-    )
-
-
 def _purge_prepared_downloads() -> None:
     now = time.time()
     for token, item in list(_PREPARED_DOWNLOADS.items()):
@@ -2718,8 +2383,7 @@ def api_prepare_download():
     try:
         target = _unique_download_path(name)
         target.write_bytes(data)
-        entry = _record_download_entry(target, name)
-        saved_path = entry["path"] if entry else str(target)
+        saved_path = str(target)
     except Exception:
         saved_path = ""
     return jsonify(
@@ -2746,219 +2410,6 @@ def api_prepared_download(token: str):
             "Cache-Control": "no-store",
         },
     )
-
-
-@app.get("/api/recent-downloads")
-def api_recent_downloads():
-    return jsonify(
-        {
-            "downloads_dir": str(_downloads_dir()),
-            "items": _recent_download_items(),
-        }
-    )
-
-
-@app.post("/api/record-download")
-def api_record_download():
-    payload = request.get_json(silent=True) or {}
-    name = _safe_download_name(str(payload.get("name") or "download.pdf"))
-    raw_path = str(payload.get("path") or "").strip()
-    folder = _downloads_dir()
-    target: Path | None = None
-    if raw_path:
-        candidate = Path(raw_path).expanduser()
-        try:
-            resolved = candidate.resolve()
-            # Only allow files under home for safety.
-            if str(resolved).startswith(str(Path.home().resolve())) and resolved.is_file():
-                target = resolved
-        except Exception:
-            target = None
-    if target is None:
-        # Prefer an exact match in Downloads, else newest matching name.
-        exact = folder / name
-        if exact.is_file():
-            target = exact
-        else:
-            matches = sorted(
-                folder.glob(name),
-                key=lambda p: p.stat().st_mtime if p.is_file() else 0,
-                reverse=True,
-            )
-            target = matches[0] if matches else None
-            if target is None:
-                # Fallback: any recent file with same stem.
-                stem = Path(name).stem
-                cand = [
-                    p
-                    for p in folder.glob(f"{stem}*")
-                    if p.is_file() and time.time() - p.stat().st_mtime < 3600
-                ]
-                cand.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                target = cand[0] if cand else None
-    if target is None:
-        return jsonify(
-            {
-                "recorded": False,
-                "message": "File not found in Downloads yet.",
-                "downloads_dir": str(folder),
-            }
-        )
-    entry = _record_download_entry(target, name)
-    return jsonify({"recorded": True, "item": entry, "downloads_dir": str(folder)})
-
-
-@app.post("/api/open-path")
-def api_open_path():
-    payload = request.get_json(silent=True) or {}
-    raw = str(payload.get("path") or "").strip()
-    if not raw:
-        return jsonify({"error": "No file path provided"}), 400
-    path = Path(raw).expanduser()
-    try:
-        resolved = path.resolve()
-    except Exception:
-        return jsonify({"error": "Invalid path"}), 400
-    home = Path.home().resolve()
-    downloads = _downloads_dir().resolve()
-    allowed_roots = (home, downloads)
-    if not any(str(resolved) == str(root) or str(resolved).startswith(str(root) + os.sep) for root in allowed_roots):
-        return jsonify({"error": "Only files in your home/Downloads folder can be opened."}), 403
-    try:
-        _open_local_path(resolved)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 400
-    return jsonify({"opened": True, "path": str(resolved)})
-
-
-@app.post("/api/open-downloads-folder")
-def api_open_downloads_folder():
-    folder = _downloads_dir()
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        _open_local_path(folder)
-    except Exception as exc:
-        return jsonify({"error": str(exc), "path": str(folder)}), 400
-    return jsonify({"opened": True, "path": str(folder)})
-
-
-def _normalize_wid(wid: str) -> tuple[str, str]:
-    """Return (hex_id, decimal_id) for wmctrl/xdotool."""
-    text = str(wid or "").strip()
-    if not text:
-        return "", ""
-    if text.startswith("0x") or text.startswith("0X"):
-        dec = str(int(text, 16))
-        return text, dec
-    if text.isdigit():
-        return hex(int(text)), text
-    return text, text
-
-
-def _window_control(action: str) -> bool:
-    """Minimize / maximize / close the app window via the desktop WM."""
-    wids = _window_ids_for_app()
-    ok = False
-    if action == "minimize":
-        # Prefer per-window xdotool with decimal IDs (hex IDs silently fail).
-        for wid in wids:
-            hex_id, dec_id = _normalize_wid(wid)
-            if dec_id:
-                ok = _run_quiet(["xdotool", "windowminimize", "--sync", dec_id]) or ok
-                ok = _run_quiet(["xdotool", "windowminimize", dec_id]) or ok
-            if hex_id:
-                ok = _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,hidden"]) or ok
-                ok = _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,iconic"]) or ok
-        ok = _run_quiet(["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,hidden"]) or ok
-        ok = _run_quiet(["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,hidden"]) or ok
-        # Last resort: iconify whatever is currently active if it is our app.
-        if not ok and shutil.which("xdotool"):
-            try:
-                active = subprocess.check_output(
-                    ["xdotool", "getactivewindow"], text=True, stderr=subprocess.DEVNULL
-                ).strip()
-                if active:
-                    ok = _run_quiet(["xdotool", "windowminimize", "--sync", active]) or ok
-            except Exception:
-                pass
-        return ok
-    if action == "toggle-maximize":
-        for wid in wids:
-            hex_id, dec_id = _normalize_wid(wid)
-            if hex_id:
-                ok = (
-                    _run_quiet(
-                        [
-                            "wmctrl",
-                            "-i",
-                            "-r",
-                            hex_id,
-                            "-b",
-                            "toggle,maximized_vert,maximized_horz",
-                        ]
-                    )
-                    or ok
-                )
-            if dec_id:
-                # Some WMs accept decimal with -i as well.
-                ok = (
-                    _run_quiet(
-                        [
-                            "wmctrl",
-                            "-i",
-                            "-r",
-                            hex(int(dec_id)),
-                            "-b",
-                            "toggle,maximized_vert,maximized_horz",
-                        ]
-                    )
-                    or ok
-                )
-        ok = (
-            _run_quiet(
-                ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "toggle,maximized_vert,maximized_horz"]
-            )
-            or ok
-        )
-        ok = (
-            _run_quiet(
-                [
-                    "wmctrl",
-                    "-r",
-                    "PDF Sign Verifier",
-                    "-b",
-                    "toggle,maximized_vert,maximized_horz",
-                ]
-            )
-            or ok
-        )
-        return True if ok else _raise_and_maximize_window(maximize=True) or True
-    if action == "close":
-        _close_app_windows()
-        _kill_orphan_browser_processes()
-        for wid in wids:
-            hex_id, dec_id = _normalize_wid(wid)
-            if hex_id:
-                _run_quiet(["wmctrl", "-i", "-c", hex_id])
-            if dec_id:
-                _run_quiet(["xdotool", "windowclose", dec_id])
-        threading.Timer(0.35, lambda: os._exit(0)).start()
-        return True
-    return False
-
-
-@app.post("/api/window/<action>")
-def api_window_action(action: str):
-    action = (action or "").strip().lower()
-    if action not in {"minimize", "toggle-maximize", "close"}:
-        return jsonify({"error": "Unknown window action"}), 400
-    try:
-        ok = _window_control(action)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-    if not ok and action != "close":
-        return jsonify({"error": f"Could not {action} window (is wmctrl/xdotool installed?)"}), 400
-    return jsonify({"ok": True, "action": action})
 
 
 @app.post("/api/export-verified-noc")
@@ -3007,16 +2458,12 @@ def api_verification_report():
         )
 
 
-_APP_CACHE = Path.home() / ".cache" / "pdf-sign-verifier-app"
 _STATE_DIR = Path.home() / ".cache" / "pdf-sign-verifier"
 _INSTANCE_LOCK_FP = None
-# Must match Icon= and StartupWMClass= in pdf-sign-verifier.desktop so the
-# running window groups onto the pinned launcher instead of a second gear icon.
-_WM_CLASS = "pdf-sign-verifier"
 
 
 def _try_acquire_instance_lock() -> bool:
-    """Keep a single app process. The lock is released when this process exits."""
+    """Keep a single local server. The lock is released when this process exits."""
     global _INSTANCE_LOCK_FP
     _STATE_DIR.mkdir(parents=True, exist_ok=True)
     fp = open(_STATE_DIR / "instance.lock", "a+", encoding="utf-8")
@@ -3105,21 +2552,6 @@ def _release_instance_lock() -> None:
         pass
 
 
-def _close_app_windows() -> None:
-    _run_quiet(["wmctrl", "-c", "PDF Sign Verifier"])
-    _run_quiet(["wmctrl", "-x", "-c", _WM_CLASS])
-    try:
-        listing = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, errors="ignore")
-    except Exception:
-        listing = ""
-    for line in listing.splitlines():
-        if "pdf-sign-verifier-app" in line and "--app=" in line:
-            try:
-                os.kill(int(line.split()[0]), signal.SIGTERM)
-            except (OSError, ValueError):
-                pass
-
-
 def _stop_pid(pid: int) -> None:
     if pid <= 0 or pid == os.getpid():
         return
@@ -3137,29 +2569,9 @@ def _stop_pid(pid: int) -> None:
         pass
 
 
-def _kill_orphan_browser_processes() -> None:
-    """Drop headless Chrome profiles left after the window was closed."""
-    try:
-        listing = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, errors="ignore")
-    except Exception:
-        return
-    me = os.getpid()
-    for line in listing.splitlines():
-        if "pdf-sign-verifier-app" not in line or "--app=" not in line:
-            continue
-        try:
-            other = int(line.split()[0])
-        except (ValueError, IndexError):
-            continue
-        if other != me:
-            _stop_pid(other)
-
-
 def _kill_locked_instance() -> None:
-    """Stop a leftover server that is holding the lock without a visible window."""
+    """Stop a leftover server that is holding the lock without serving HTTP."""
     pid = _lock_pid()
-    _close_app_windows()
-    _kill_orphan_browser_processes()
     if pid and pid != os.getpid():
         _stop_pid(pid)
     time.sleep(0.25)
@@ -3181,14 +2593,12 @@ def _replace_stale_instance(host: str, port: int) -> bool:
     if disk_ver and running_ver and _parse_version_tuple(disk_ver) > _parse_version_tuple(running_ver):
         stale = True
     if not running_ver:
-        # Window closed but Flask may still hold the lock with no HTTP.
         pid = _lock_pid()
-        if pid and pid != os.getpid() and _pid_alive(pid) and not _app_window_open():
+        if pid and pid != os.getpid() and _pid_alive(pid):
             stale = True
     if not stale:
         return False
     pid = _lock_pid()
-    _close_app_windows()
     if pid:
         _stop_pid(pid)
     time.sleep(0.2)
@@ -3200,8 +2610,6 @@ def _relaunch_and_exit() -> None:
     launcher = shutil.which("pdf-sign-verifier") or "/usr/bin/pdf-sign-verifier"
     if not Path(launcher).exists():
         launcher = "/opt/pdf-sign-verifier/pdf-sign-verifier"
-    _close_app_windows()
-    _kill_orphan_browser_processes()
     _release_instance_lock()
     time.sleep(0.4)
     try:
@@ -3215,178 +2623,6 @@ def _relaunch_and_exit() -> None:
     except Exception:
         pass
     os._exit(0)
-
-
-def _chrome_profile_running() -> bool:
-    """True when a Chrome process we launched for the local app URL is alive."""
-    try:
-        listing = subprocess.check_output(["ps", "-eo", "args"], text=True, errors="ignore")
-    except Exception:
-        return False
-    return any(
-        ("google-chrome" in line or "chromium" in line)
-        and "127.0.0.1:876" in line
-        for line in listing.splitlines()
-    )
-
-
-def _watch_window_and_exit(chrome: subprocess.Popen | None = None) -> None:
-    """Keep the Flask backend alive until the Chrome window/process is gone."""
-    for _ in range(40):
-        if (chrome and chrome.poll() is None) or _app_window_open() or _chrome_profile_running():
-            break
-        time.sleep(0.25)
-
-    missing = 0
-    while True:
-        time.sleep(0.8)
-        chrome_alive = bool(chrome and chrome.poll() is None)
-        profile_alive = _chrome_profile_running()
-        window_alive = _app_window_open()
-        if chrome_alive or profile_alive or window_alive:
-            missing = 0
-            continue
-        missing += 1
-        if missing >= 8:
-            os._exit(0)
-
-
-def _run_quiet(args: list[str]) -> bool:
-    if not shutil.which(args[0]):
-        return False
-    result = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return result.returncode == 0
-
-
-def _window_ids_for_app() -> list[str]:
-    ids: list[str] = []
-    if shutil.which("xdotool"):
-        for args in (
-            ["xdotool", "search", "--name", "PDF Sign Verifier"],
-            ["xdotool", "search", "--name", "Sign Verifier"],
-            ["xdotool", "search", "--class", _WM_CLASS],
-            ["xdotool", "search", "--class", "PDFSignVerifier"],
-        ):
-            found = subprocess.run(args, capture_output=True, text=True)
-            if found.returncode == 0:
-                ids.extend(found.stdout.split())
-    if shutil.which("wmctrl"):
-        listing = subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True)
-        for line in listing.stdout.splitlines():
-            low = line.lower()
-            if "pdf sign verifier" in low or "pdf-sign-verifier" in low or "pdfsignverifier" in low:
-                ids.append(line.split()[0])
-    seen: set[str] = set()
-    unique: list[str] = []
-    for wid in ids:
-        if wid and wid not in seen:
-            seen.add(wid)
-            unique.append(wid)
-    return unique
-
-
-def _stamp_window_identity(wid: str, *, maximize: bool = False) -> None:
-    """Force the running window to use this app's desktop class and icon grouping."""
-    # WM_CLASS needs instance + class (two strings). A single value breaks dock grouping.
-    # Do NOT strip Motif decorations here — Chrome --app draws its own caption and
-    # Motif stripping only creates a useless Close-only bar on top of our UI.
-    if wid.startswith("0x") or wid.startswith("0X"):
-        dec = str(int(wid, 16))
-        _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, dec])
-        _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
-        if maximize:
-            _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,maximized_vert,maximized_horz"])
-        return
-    _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, wid])
-    hex_id = hex(int(wid)) if wid.isdigit() else wid
-    _run_quiet(
-        ["xprop", "-id", hex_id, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"]
-    )
-    if maximize:
-        _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,maximized_vert,maximized_horz"])
-
-
-def _adopt_running_window(timeout: float = 8.0, *, maximize: bool = True) -> bool:
-    deadline = time.time() + timeout
-    stamped = False
-    while time.time() < deadline:
-        wids = _window_ids_for_app()
-        for wid in wids:
-            _stamp_window_identity(wid, maximize=maximize and not stamped)
-            stamped = True
-        if stamped:
-            _raise_and_maximize_window(maximize=maximize)
-            return True
-        time.sleep(0.2)
-    return False
-
-
-def _app_window_open() -> bool:
-    """True only when a real window exists — not a leftover Chrome process."""
-    if _window_ids_for_app():
-        return True
-    if shutil.which("wmctrl"):
-        try:
-            listing = subprocess.check_output(["wmctrl", "-lx"], text=True, errors="ignore")
-        except Exception:
-            listing = ""
-        for line in listing.splitlines():
-            low = line.lower()
-            if _WM_CLASS.lower() in low or "pdf sign verifier" in low:
-                return True
-    if shutil.which("xdotool"):
-        found = subprocess.run(
-            ["xdotool", "search", "--class", _WM_CLASS],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if found.returncode == 0:
-            return True
-    return False
-
-
-def _raise_and_maximize_window(*, maximize: bool = False) -> bool:
-    raised = (
-        _run_quiet(["wmctrl", "-xa", _WM_CLASS])
-        or _run_quiet(["wmctrl", "-a", "PDF Sign Verifier"])
-        or _run_quiet(["xdotool", "search", "--class", _WM_CLASS, "windowactivate"])
-    )
-    if maximize:
-        _run_quiet(
-            ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,maximized_vert,maximized_horz"]
-        )
-        _run_quiet(
-            ["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,maximized_vert,maximized_horz"]
-        )
-    return raised
-
-
-def _maximize_when_ready(timeout: float = 8.0) -> None:
-    _adopt_running_window(timeout=timeout, maximize=True)
-
-
-def _activate_existing_instance(host: str, preferred_port: int) -> None:
-    port = _read_instance_port(preferred_port)
-    url = f"http://{host}:{port}/"
-    if _app_window_open():
-        _raise_and_maximize_window(maximize=False)
-        print("PDF Sign Verifier is already running — existing window brought to the front.")
-        return
-    try:
-        urllib.request.urlopen(url, timeout=0.6)
-        server_up = True
-    except Exception:
-        server_up = False
-    if server_up:
-        chrome = _open_default_chrome(url)
-        if chrome:
-            print("PDF Sign Verifier is already running — reopened in Chrome.")
-            return
-        webbrowser.open(url)
-        print("PDF Sign Verifier is already running — opened in the default browser.")
-        return
-    _raise_and_maximize_window(maximize=False)
-    print("PDF Sign Verifier is already running.")
 
 
 def _pick_port(host: str, preferred: int, attempts: int = 20) -> int:
@@ -3417,49 +2653,8 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> None:
             time.sleep(0.12)
 
 
-def _gi_available() -> bool:
-    try:
-        import gi
-
-        gi.require_version("Gtk", "3.0")
-        gi.require_version("Gdk", "3.0")
-        return True
-    except Exception:
-        return False
-
-
-def _configure_native_window_identity() -> None:
-    """Make GTK/WebKit advertise pdf-sign-verifier so Cinnamon groups one dock icon."""
-    os.environ.setdefault("GTK_APPLICATION_ID", _WM_CLASS)
-    os.environ.setdefault("APP_ID", _WM_CLASS)
-    try:
-        import gi
-
-        gi.require_version("Gtk", "3.0")
-        gi.require_version("Gdk", "3.0")
-        from gi.repository import GLib, Gdk
-
-        GLib.set_application_name("PDF Sign Verifier")
-        GLib.set_prgname(_WM_CLASS)
-        if hasattr(Gdk, "set_program_class"):
-            Gdk.set_program_class(_WM_CLASS)
-    except Exception:
-        pass
-
-
-def _open_pywebview_window(url: str) -> bool:
-    """Disabled: the UI now opens in Google Chrome so downloads and window
-    controls stay native. Kept as a stub so older call sites stay safe.
-    """
-    return False
-
-
 def _open_default_chrome(url: str) -> subprocess.Popen | None:
-    """Open in a normal Google Chrome / Chromium window (not --app).
-
-    Uses the user's real Chrome profile so Downloads, min/max/close, and
-    tabs work exactly like everyday browsing.
-    """
+    """Open the local UI in a normal Chrome / Chromium window."""
     binaries = (
         "google-chrome",
         "google-chrome-stable",
@@ -3495,51 +2690,41 @@ def _serve_flask(host: str, port: int) -> None:
 
 
 def _focus_running_app(host: str, port: int, open_browser: bool) -> None:
-    """Bring an already-running instance to the front, opening the window if needed."""
+    """If the local server is already up, open it in the browser again."""
     saved_port = _read_instance_port(port)
     if not _server_responding(host, saved_port):
         return
-    url = f"http://{host}:{saved_port}/"
-    if _app_window_open():
-        _raise_and_maximize_window(maximize=False)
+    if not open_browser:
         return
-    if open_browser:
-        chrome = _open_default_chrome(url)
-        if chrome:
-            return
+    url = f"http://{host}:{saved_port}/"
+    if not _open_default_chrome(url):
         webbrowser.open(url)
 
 
 def _start_app(host: str, port: int, open_browser: bool) -> None:
-    """Primary instance: run Flask and open the UI."""
-    _close_app_windows()
-    _kill_orphan_browser_processes()
+    """Primary instance: run Flask and open the UI in the browser."""
     chosen = _pick_port(host, port)
     _write_instance_port(chosen)
     url = f"http://{host}:{chosen}/"
     print(f"PDF Sign Verifier {_effective_app_version()}")
     if chosen != port:
         print(f"Port {port} is busy — using {chosen} instead.")
-    print(f"App: {url}")
+    print(f"UI: {url}")
 
     if not open_browser:
-        print("Keep this terminal open while the app is running.")
+        print("Keep this terminal open while the server is running.")
         _serve_flask(host, chosen)
         return
 
-    # Non-daemon so the server cannot die while the UI is still open.
     flask_thread = threading.Thread(
         target=_serve_flask, args=(host, chosen), name="pdf-sign-verifier-flask", daemon=False
     )
     flask_thread.start()
     _wait_for_server(url)
 
-    print("Opened in Google Chrome. The local server stays running until you close this process.")
-    chrome = _open_default_chrome(url)
-    if not chrome:
+    print("Opened in the browser. The local server stays running until you close this process.")
+    if not _open_default_chrome(url):
         webbrowser.open(url)
-    # Chrome --new-window often returns immediately if Chrome is already running.
-    # Keep serving until this process is stopped (menu launcher stays in background).
     try:
         flask_thread.join()
     except KeyboardInterrupt:
