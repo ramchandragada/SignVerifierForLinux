@@ -93,6 +93,30 @@ PAGE = r"""
         radial-gradient(700px 380px at 100% 0%, rgba(15,107,86,0.12), transparent 46%),
         linear-gradient(180deg, #e8eef6 0%, #eef3f8 42%, #e7eee9 100%);
     }
+    .os-titlebar {
+      flex: 0 0 auto;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0 0 0 0.9rem;
+      background: linear-gradient(180deg, #ffffff 0%, #f3f5f8 100%);
+      border-bottom: 1px solid #d5dbe5;
+      color: #1f2937;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+    .os-titlebar-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #334155;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .titlebar {
       flex: 0 0 auto;
       display: flex;
@@ -132,17 +156,17 @@ PAGE = r"""
     }
     .win-controls {
       display: inline-flex;
-      align-items: center;
-      gap: 0.28rem;
-      margin-left: 0.15rem;
+      align-items: stretch;
+      margin-left: auto;
+      -webkit-app-region: no-drag;
     }
     .win-btn {
-      width: 34px;
-      height: 28px;
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.14);
-      background: rgba(255,255,255,0.08);
-      color: #e8eef8;
+      width: 46px;
+      height: 36px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: #334155;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -150,10 +174,9 @@ PAGE = r"""
       padding: 0;
       box-shadow: none;
     }
-    .win-btn:hover { filter: brightness(1.15); transform: none; }
+    .win-btn:hover { background: #e5e7eb; filter: none; transform: none; }
     .win-btn.close:hover {
-      background: #c62828;
-      border-color: #c62828;
+      background: #e81123;
       color: #fff;
       filter: none;
     }
@@ -928,6 +951,20 @@ PAGE = r"""
 </head>
 <body>
   <div class="app-shell">
+    <header class="os-titlebar" id="osTitlebar">
+      <div class="os-titlebar-title">PDF Sign Verifier</div>
+      <div class="win-controls" role="group" aria-label="Window controls">
+        <button type="button" class="win-btn" id="winMinimize" title="Minimize" aria-label="Minimize">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6h8"/></svg>
+        </button>
+        <button type="button" class="win-btn" id="winMaximize" title="Maximize" aria-label="Maximize">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="0.8"/></svg>
+        </button>
+        <button type="button" class="win-btn close" id="winClose" title="Close" aria-label="Close">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
+        </button>
+      </div>
+    </header>
     <header class="titlebar">
       <img class="aspera-logo" src="/brand/aspera-logo.png" alt="Aspera" />
       <div class="titlebar-text">
@@ -941,17 +978,6 @@ PAGE = r"""
           <span class="dl-dot" aria-hidden="true"></span>
         </button>
         <div class="titlebar-ver" aria-label="Version {{ version }}">{{ version }}</div>
-        <div class="win-controls" role="group" aria-label="Window controls">
-          <button type="button" class="win-btn" id="winMinimize" title="Minimize" aria-label="Minimize">
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6h8"/></svg>
-          </button>
-          <button type="button" class="win-btn" id="winMaximize" title="Maximize" aria-label="Maximize">
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="0.8"/></svg>
-          </button>
-          <button type="button" class="win-btn close" id="winClose" title="Close" aria-label="Close">
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l6 6M9 3L3 9"/></svg>
-          </button>
-        </div>
         <div class="dl-panel" id="downloadsPanel" hidden>
           <div class="dl-panel-head">
             <h3>Recent download history</h3>
@@ -3654,6 +3680,38 @@ def _window_ids_for_app() -> list[str]:
     return unique
 
 
+def _strip_native_titlebar(wid: str) -> None:
+    """Hide the OS/Chrome caption bar so our white titlebar owns min/max/close."""
+    # Motif hints: flags=2 (decorations), decorations=0 (no title/border chrome).
+    # Keeps a normal resizable toplevel without the sparse Close-only caption.
+    _run_quiet(
+        [
+            "xprop",
+            "-id",
+            wid,
+            "-f",
+            "_MOTIF_WM_HINTS",
+            "32c",
+            "-set",
+            "_MOTIF_WM_HINTS",
+            "2, 0, 0, 0, 0",
+        ]
+    )
+    _run_quiet(
+        [
+            "xprop",
+            "-id",
+            wid,
+            "-f",
+            "_NET_WM_WINDOW_TYPE",
+            "32a",
+            "-set",
+            "_NET_WM_WINDOW_TYPE",
+            "_NET_WM_WINDOW_TYPE_NORMAL",
+        ]
+    )
+
+
 def _stamp_window_identity(wid: str, *, maximize: bool = False) -> None:
     """Force the running window to use this app's desktop class and icon grouping."""
     # WM_CLASS needs instance + class (two strings). A single value breaks dock grouping.
@@ -3661,13 +3719,15 @@ def _stamp_window_identity(wid: str, *, maximize: bool = False) -> None:
         dec = str(int(wid, 16))
         _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, dec])
         _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
+        _strip_native_titlebar(wid)
         if maximize:
             _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,maximized_vert,maximized_horz"])
         return
     _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, wid])
-    _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
+    hex_id = hex(int(wid)) if wid.isdigit() else wid
+    _run_quiet(["xprop", "-id", hex_id if wid.isdigit() else wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
+    _strip_native_titlebar(hex_id if wid.isdigit() else wid)
     if maximize:
-        hex_id = hex(int(wid)) if wid.isdigit() else wid
         _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,maximized_vert,maximized_horz"])
 
 
@@ -3830,17 +3890,29 @@ def _open_pywebview_window(url: str) -> bool:
                 height=900,
                 min_size=(880, 620),
                 maximized=True,
-                frameless=False,
+                frameless=True,
+                easy_drag=False,
             )
         except TypeError:
-            webview.create_window(
-                "PDF Sign Verifier",
-                url,
-                width=1400,
-                height=900,
-                min_size=(880, 620),
-                maximized=True,
-            )
+            try:
+                webview.create_window(
+                    "PDF Sign Verifier",
+                    url,
+                    width=1400,
+                    height=900,
+                    min_size=(880, 620),
+                    maximized=True,
+                    frameless=True,
+                )
+            except TypeError:
+                webview.create_window(
+                    "PDF Sign Verifier",
+                    url,
+                    width=1400,
+                    height=900,
+                    min_size=(880, 620),
+                    maximized=True,
+                )
         webview.start(gui="gtk")
         return True
     except Exception as exc:
