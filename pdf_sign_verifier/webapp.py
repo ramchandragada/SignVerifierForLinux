@@ -1235,7 +1235,7 @@ PAGE = r"""
     }
 
     async function openDownloadPath(path) {
-      setDlStatus('Opening…', false);
+      setDlStatus('Opening file…', false);
       const res = await fetch('/api/open-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1243,7 +1243,7 @@ PAGE = r"""
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not open file');
-      setDlStatus('Opened in your file viewer.', false);
+      setDlStatus('Opened — check your Files window or PDF viewer (it may be behind this app).', false);
     }
 
     async function openDownloadsDir() {
@@ -1251,7 +1251,7 @@ PAGE = r"""
       const res = await fetch('/api/open-downloads-folder', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not open Downloads folder');
-      setDlStatus('Downloads folder opened.', false);
+      setDlStatus('Downloads folder opened — check the Files window (it may be behind this app).', false);
     }
 
     async function recordDownload(name, path) {
@@ -2910,105 +2910,216 @@ def _recent_download_items(limit: int = 15) -> list[dict]:
     return items[:limit]
 
 
-def _open_local_path(path: Path) -> None:
-    """Open a file or folder with the desktop's default handler.
+def _session_env() -> dict[str, str]:
+    """Build an env that can talk to the user's graphical session."""
+    env = os.environ.copy()
+    uid = os.getuid()
+    runtime = Path(f"/run/user/{uid}")
+    if "XDG_RUNTIME_DIR" not in env and runtime.is_dir():
+        env["XDG_RUNTIME_DIR"] = str(runtime)
+    bus = runtime / "bus"
+    if bus.exists():
+        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus}"
+    # DISPLAY is required for X11 openers; fall back to :0 when missing.
+    if not env.get("DISPLAY") and not env.get("WAYLAND_DISPLAY"):
+        if Path("/tmp/.X11-unix/X0").exists():
+            env["DISPLAY"] = ":0"
+    if "XAUTHORITY" not in env:
+        xauth = Path.home() / ".Xauthority"
+        if xauth.is_file():
+            env["XAUTHORITY"] = str(xauth)
+    return env
 
-    Important: do NOT use start_new_session here — that drops DBUS/DISPLAY
-    and makes xdg-open silently fail on Cinnamon/GNOME/KDE.
-    """
+
+def _spawn_detached(cmd: list[str], env: dict[str, str]) -> bool:
+    """Start a GUI helper and return True if the process launched."""
+    try:
+        # Prefer launching inside the user systemd session when available —
+        # this is the most reliable way out of a frozen app / Chrome --app host.
+        if shutil.which("systemd-run"):
+            wrapped = ["systemd-run", "--user", "--collect", "--quiet"]
+            for key in (
+                "DISPLAY",
+                "WAYLAND_DISPLAY",
+                "XAUTHORITY",
+                "DBUS_SESSION_BUS_ADDRESS",
+                "XDG_RUNTIME_DIR",
+                "XDG_CURRENT_DESKTOP",
+            ):
+                val = env.get(key) or ""
+                if val:
+                    wrapped.append(f"--setenv={key}={val}")
+            wrapped.extend(cmd)
+            proc = subprocess.Popen(
+                wrapped,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(0.2)
+            if proc.poll() in (None, 0):
+                return True
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=False,
+        )
+        time.sleep(0.15)
+        return proc.poll() in (None, 0)
+    except Exception:
+        return False
+
+
+def _file_managers() -> list[str]:
+    # Prefer Mint/Cinnamon's Nemo, then common Linux FMs.
+    names = ("nemo", "caja", "nautilus", "thunar", "dolphin", "pcmanfm", "xdg-open")
+    return [n for n in names if shutil.which(n)]
+
+
+def _mime_handler(mime: str) -> list[str] | None:
+    if not shutil.which("xdg-mime"):
+        return None
+    try:
+        desktop = subprocess.check_output(
+            ["xdg-mime", "query", "default", mime],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        ).strip()
+    except Exception:
+        return None
+    if not desktop:
+        return None
+    # Map .desktop id to an executable when possible.
+    mapping = {
+        "org.gnome.Evince.desktop": "evince",
+        "org.gnome.Papers.desktop": "papers",
+        "org.kde.okular.desktop": "okular",
+        "atril.desktop": "atril",
+        "xreader.desktop": "xreader",
+        "org.gnome.Nautilus.desktop": "nautilus",
+        "nemo.desktop": "nemo",
+        "org.nemo.desktop": "nemo",
+        "firefox.desktop": "firefox",
+        "google-chrome.desktop": "google-chrome",
+        "chromium_chromium.desktop": "chromium",
+        "chromium-browser.desktop": "chromium-browser",
+    }
+    exe = mapping.get(desktop)
+    if exe and shutil.which(exe):
+        return [exe]
+    # Generic: gtk-launch <desktop-id>
+    if shutil.which("gtk-launch"):
+        return ["gtk-launch", desktop.replace(".desktop", "")]
+    return None
+
+
+def _open_local_path(path: Path) -> None:
+    """Open a file or folder so the user actually sees a window on Mint/Cinnamon."""
     resolved = path.expanduser().resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"File not found: {resolved}")
 
-    env = os.environ.copy()
-    # Ensure common session vars survive even if a launcher stripped them.
-    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "DESKTOP_SESSION"):
-        if key not in env and key in os.environ:
-            env[key] = os.environ[key]
-
+    env = _session_env()
     uri = resolved.as_uri()
     errors: list[str] = []
 
-    def _try(cmd: list[str]) -> bool:
-        try:
-            proc = subprocess.run(
-                cmd,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=12,
-            )
-            if proc.returncode == 0:
-                return True
-            err = (proc.stderr or "").strip()
-            errors.append(f"{' '.join(cmd)} -> {proc.returncode} {err}")
-        except FileNotFoundError:
-            errors.append(f"missing: {cmd[0]}")
-        except Exception as exc:
-            errors.append(f"{cmd[0]}: {exc}")
-        return False
+    def _note(msg: str) -> None:
+        errors.append(msg)
 
-    # 1) Direct desktop openers
-    if shutil.which("xdg-open") and _try(["xdg-open", str(resolved)]):
-        return
-    if shutil.which("gio") and _try(["gio", "open", str(resolved)]):
-        return
-
-    # 2) File manager DBus (especially reliable for folders)
-    if shutil.which("dbus-send"):
-        if resolved.is_dir():
-            if _try(
-                [
-                    "dbus-send",
-                    "--session",
-                    "--dest=org.freedesktop.FileManager1",
-                    "--type=method_call",
-                    "/org/freedesktop/FileManager1",
-                    "org.freedesktop.FileManager1.ShowFolders",
-                    f"array:string:{uri}",
-                    "string:",
-                ]
-            ):
+    # --- Folders: open with a real file manager first ---
+    if resolved.is_dir():
+        for fm in _file_managers():
+            if _spawn_detached([fm, str(resolved)], env):
                 return
-        else:
-            if _try(
-                [
-                    "dbus-send",
-                    "--session",
-                    "--dest=org.freedesktop.FileManager1",
-                    "--type=method_call",
-                    "/org/freedesktop/FileManager1",
-                    "org.freedesktop.FileManager1.ShowItems",
-                    f"array:string:{uri}",
-                    "string:",
-                ]
-            ):
-                return
-            # Still try opening the parent folder if ShowItems failed.
-            parent_uri = resolved.parent.as_uri()
-            if _try(
-                [
-                    "dbus-send",
-                    "--session",
-                    "--dest=org.freedesktop.FileManager1",
-                    "--type=method_call",
-                    "/org/freedesktop/FileManager1",
-                    "org.freedesktop.FileManager1.ShowFolders",
-                    f"array:string:{parent_uri}",
-                    "string:",
-                ]
-            ):
-                return
-
-    # 3) Last resort: ask the browser helper to open file://
-    try:
-        if webbrowser.open(uri):
+            _note(f"folder opener failed: {fm}")
+        if shutil.which("dbus-send") and _spawn_detached(
+            [
+                "dbus-send",
+                "--session",
+                "--dest=org.freedesktop.FileManager1",
+                "--type=method_call",
+                "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1.ShowFolders",
+                f"array:string:{uri}",
+                "string:",
+            ],
+            env,
+        ):
             return
-    except Exception as exc:
-        errors.append(f"webbrowser: {exc}")
+        raise RuntimeError(
+            "Could not open Downloads folder. "
+            + (" | ".join(errors) if errors else "Install nemo or xdg-utils.")
+        )
 
-    raise RuntimeError("Could not open path. " + (" | ".join(errors) if errors else "No opener available."))
+    # --- Files: reveal in file manager (most reliable), then open with viewer ---
+    revealed = False
+    for fm in _file_managers():
+        if fm == "xdg-open":
+            continue
+        if _spawn_detached([fm, str(resolved.parent)], env):
+            revealed = True
+            if shutil.which("dbus-send"):
+                _spawn_detached(
+                    [
+                        "dbus-send",
+                        "--session",
+                        "--dest=org.freedesktop.FileManager1",
+                        "--type=method_call",
+                        "/org/freedesktop/FileManager1",
+                        "org.freedesktop.FileManager1.ShowItems",
+                        f"array:string:{uri}",
+                        "string:",
+                    ],
+                    env,
+                )
+            break
+        _note(f"reveal failed: {fm}")
+
+    if not revealed and shutil.which("dbus-send"):
+        revealed = _spawn_detached(
+            [
+                "dbus-send",
+                "--session",
+                "--dest=org.freedesktop.FileManager1",
+                "--type=method_call",
+                "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1.ShowItems",
+                f"array:string:{uri}",
+                "string:",
+            ],
+            env,
+        )
+
+    # Open with the MIME default viewer (PDF reader, etc.).
+    opened = False
+    mime = "application/pdf" if resolved.suffix.lower() == ".pdf" else "application/octet-stream"
+    if resolved.suffix.lower() == ".deb":
+        mime = "application/vnd.debian.binary-package"
+    handler = _mime_handler(mime)
+    if handler and _spawn_detached([*handler, str(resolved)], env):
+        opened = True
+    elif shutil.which("xdg-open") and _spawn_detached(["xdg-open", str(resolved)], env):
+        opened = True
+    elif shutil.which("gio") and _spawn_detached(["gio", "open", str(resolved)], env):
+        opened = True
+    elif resolved.suffix.lower() == ".pdf":
+        for viewer in ("xreader", "evince", "atril", "okular", "papers"):
+            if shutil.which(viewer) and _spawn_detached([viewer, str(resolved)], env):
+                opened = True
+                break
+
+    if opened or revealed:
+        # Bring the file manager / viewer above our Chrome --app window.
+        for title in ("Downloads", "Home", "Files", "File Manager", "Nemo", "xreader", "Document Viewer", "Evince"):
+            _run_quiet(["wmctrl", "-a", title])
+        return
+
+    raise RuntimeError(
+        "Could not open file. " + (" | ".join(errors) if errors else "No opener available.")
+    )
 
 
 def _purge_prepared_downloads() -> None:
