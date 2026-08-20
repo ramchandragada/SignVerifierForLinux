@@ -106,6 +106,8 @@ PAGE = r"""
       -webkit-app-region: drag;
       user-select: none;
     }
+    /* Chrome --app already has a system/caption bar — never stack a second one. */
+    html[data-shell="chrome"] .os-titlebar { display: none !important; }
     .os-titlebar-title {
       flex: 1;
       min-width: 0;
@@ -950,6 +952,16 @@ PAGE = r"""
   </style>
 </head>
 <body>
+  <script>
+    (function () {
+      try {
+        var shell = new URLSearchParams(window.location.search).get('shell') || 'native';
+        document.documentElement.setAttribute('data-shell', shell);
+      } catch (e) {
+        document.documentElement.setAttribute('data-shell', 'native');
+      }
+    })();
+  </script>
   <div class="app-shell">
     <header class="os-titlebar" id="osTitlebar">
       <div class="os-titlebar-title">PDF Sign Verifier</div>
@@ -3293,44 +3305,106 @@ def api_open_downloads_folder():
     return jsonify({"opened": True, "path": str(folder)})
 
 
+def _normalize_wid(wid: str) -> tuple[str, str]:
+    """Return (hex_id, decimal_id) for wmctrl/xdotool."""
+    text = str(wid or "").strip()
+    if not text:
+        return "", ""
+    if text.startswith("0x") or text.startswith("0X"):
+        dec = str(int(text, 16))
+        return text, dec
+    if text.isdigit():
+        return hex(int(text)), text
+    return text, text
+
+
 def _window_control(action: str) -> bool:
     """Minimize / maximize / close the app window via the desktop WM."""
     wids = _window_ids_for_app()
     ok = False
     if action == "minimize":
-        ok = _run_quiet(["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,hidden"])
-        ok = _run_quiet(["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,hidden"]) or ok
+        # Prefer per-window xdotool with decimal IDs (hex IDs silently fail).
         for wid in wids:
-            ok = _run_quiet(["xdotool", "windowminimize", wid]) or ok
-            ok = _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,hidden"]) or ok
+            hex_id, dec_id = _normalize_wid(wid)
+            if dec_id:
+                ok = _run_quiet(["xdotool", "windowminimize", "--sync", dec_id]) or ok
+                ok = _run_quiet(["xdotool", "windowminimize", dec_id]) or ok
+            if hex_id:
+                ok = _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,hidden"]) or ok
+                ok = _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,iconic"]) or ok
+        ok = _run_quiet(["wmctrl", "-x", "-r", _WM_CLASS, "-b", "add,hidden"]) or ok
+        ok = _run_quiet(["wmctrl", "-r", "PDF Sign Verifier", "-b", "add,hidden"]) or ok
+        # Last resort: iconify whatever is currently active if it is our app.
+        if not ok and shutil.which("xdotool"):
+            try:
+                active = subprocess.check_output(
+                    ["xdotool", "getactivewindow"], text=True, stderr=subprocess.DEVNULL
+                ).strip()
+                if active:
+                    ok = _run_quiet(["xdotool", "windowminimize", "--sync", active]) or ok
+            except Exception:
+                pass
         return ok
     if action == "toggle-maximize":
-        ok = _run_quiet(
-            ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "toggle,maximized_vert,maximized_horz"]
-        )
+        for wid in wids:
+            hex_id, dec_id = _normalize_wid(wid)
+            if hex_id:
+                ok = (
+                    _run_quiet(
+                        [
+                            "wmctrl",
+                            "-i",
+                            "-r",
+                            hex_id,
+                            "-b",
+                            "toggle,maximized_vert,maximized_horz",
+                        ]
+                    )
+                    or ok
+                )
+            if dec_id:
+                # Some WMs accept decimal with -i as well.
+                ok = (
+                    _run_quiet(
+                        [
+                            "wmctrl",
+                            "-i",
+                            "-r",
+                            hex(int(dec_id)),
+                            "-b",
+                            "toggle,maximized_vert,maximized_horz",
+                        ]
+                    )
+                    or ok
+                )
         ok = (
             _run_quiet(
-                ["wmctrl", "-r", "PDF Sign Verifier", "-b", "toggle,maximized_vert,maximized_horz"]
+                ["wmctrl", "-x", "-r", _WM_CLASS, "-b", "toggle,maximized_vert,maximized_horz"]
             )
             or ok
         )
-        for wid in wids:
-            ok = (
-                _run_quiet(
-                    ["wmctrl", "-i", "-r", wid, "-b", "toggle,maximized_vert,maximized_horz"]
-                )
-                or ok
+        ok = (
+            _run_quiet(
+                [
+                    "wmctrl",
+                    "-r",
+                    "PDF Sign Verifier",
+                    "-b",
+                    "toggle,maximized_vert,maximized_horz",
+                ]
             )
-        if not ok:
-            _raise_and_maximize_window(maximize=True)
-            return True
-        return True
+            or ok
+        )
+        return True if ok else _raise_and_maximize_window(maximize=True) or True
     if action == "close":
         _close_app_windows()
         _kill_orphan_browser_processes()
         for wid in wids:
-            _run_quiet(["wmctrl", "-i", "-c", wid])
-            _run_quiet(["xdotool", "windowclose", wid])
+            hex_id, dec_id = _normalize_wid(wid)
+            if hex_id:
+                _run_quiet(["wmctrl", "-i", "-c", hex_id])
+            if dec_id:
+                _run_quiet(["xdotool", "windowclose", dec_id])
         threading.Timer(0.35, lambda: os._exit(0)).start()
         return True
     return False
@@ -3680,53 +3754,23 @@ def _window_ids_for_app() -> list[str]:
     return unique
 
 
-def _strip_native_titlebar(wid: str) -> None:
-    """Hide the OS/Chrome caption bar so our white titlebar owns min/max/close."""
-    # Motif hints: flags=2 (decorations), decorations=0 (no title/border chrome).
-    # Keeps a normal resizable toplevel without the sparse Close-only caption.
-    _run_quiet(
-        [
-            "xprop",
-            "-id",
-            wid,
-            "-f",
-            "_MOTIF_WM_HINTS",
-            "32c",
-            "-set",
-            "_MOTIF_WM_HINTS",
-            "2, 0, 0, 0, 0",
-        ]
-    )
-    _run_quiet(
-        [
-            "xprop",
-            "-id",
-            wid,
-            "-f",
-            "_NET_WM_WINDOW_TYPE",
-            "32a",
-            "-set",
-            "_NET_WM_WINDOW_TYPE",
-            "_NET_WM_WINDOW_TYPE_NORMAL",
-        ]
-    )
-
-
 def _stamp_window_identity(wid: str, *, maximize: bool = False) -> None:
     """Force the running window to use this app's desktop class and icon grouping."""
     # WM_CLASS needs instance + class (two strings). A single value breaks dock grouping.
+    # Do NOT strip Motif decorations here — Chrome --app draws its own caption and
+    # Motif stripping only creates a useless Close-only bar on top of our UI.
     if wid.startswith("0x") or wid.startswith("0X"):
         dec = str(int(wid, 16))
         _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, dec])
         _run_quiet(["xprop", "-id", wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
-        _strip_native_titlebar(wid)
         if maximize:
             _run_quiet(["wmctrl", "-i", "-r", wid, "-b", "add,maximized_vert,maximized_horz"])
         return
     _run_quiet(["xdotool", "set_window", "--class", _WM_CLASS, "--classname", _WM_CLASS, wid])
     hex_id = hex(int(wid)) if wid.isdigit() else wid
-    _run_quiet(["xprop", "-id", hex_id if wid.isdigit() else wid, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"])
-    _strip_native_titlebar(hex_id if wid.isdigit() else wid)
+    _run_quiet(
+        ["xprop", "-id", hex_id, "-f", "WM_CLASS", "8s", "-set", "WM_CLASS", f"{_WM_CLASS}\0{_WM_CLASS}"]
+    )
     if maximize:
         _run_quiet(["wmctrl", "-i", "-r", hex_id, "-b", "add,maximized_vert,maximized_horz"])
 
@@ -3881,11 +3925,12 @@ def _open_pywebview_window(url: str) -> bool:
     except Exception:
         return False
     threading.Thread(target=_adopt_running_window, kwargs={"timeout": 12.0}, daemon=True).start()
+    native_url = _with_shell_query(url, "native")
     try:
         try:
             webview.create_window(
                 "PDF Sign Verifier",
-                url,
+                native_url,
                 width=1400,
                 height=900,
                 min_size=(880, 620),
@@ -3897,7 +3942,7 @@ def _open_pywebview_window(url: str) -> bool:
             try:
                 webview.create_window(
                     "PDF Sign Verifier",
-                    url,
+                    native_url,
                     width=1400,
                     height=900,
                     min_size=(880, 620),
@@ -3907,7 +3952,7 @@ def _open_pywebview_window(url: str) -> bool:
             except TypeError:
                 webview.create_window(
                     "PDF Sign Verifier",
-                    url,
+                    native_url,
                     width=1400,
                     height=900,
                     min_size=(880, 620),
@@ -3920,9 +3965,41 @@ def _open_pywebview_window(url: str) -> bool:
         return False
 
 
+def _ensure_chrome_system_titlebar(profile: Path) -> None:
+    """Force Chrome/Chromium to use the desktop title bar (min/max/close)."""
+    default_dir = profile / "Default"
+    default_dir.mkdir(parents=True, exist_ok=True)
+    prefs_path = default_dir / "Preferences"
+    data: dict = {}
+    if prefs_path.is_file():
+        try:
+            data = json.loads(prefs_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {}
+    browser = data.setdefault("browser", {})
+    if not isinstance(browser, dict):
+        browser = {}
+        data["browser"] = browser
+    # False => use system title bar and borders (Linux Mint / GNOME / Cinnamon).
+    browser["custom_chrome_frame"] = False
+    try:
+        prefs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _with_shell_query(url: str, shell: str) -> str:
+    join = "&" if "?" in url else "?"
+    return f"{url}{join}shell={shell}"
+
+
 def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
     profile = _APP_CACHE
     profile.mkdir(parents=True, exist_ok=True)
+    _ensure_chrome_system_titlebar(profile)
+    chrome_url = _with_shell_query(url, "chrome")
     binaries = (
         "google-chrome",
         "google-chrome-stable",
@@ -3943,11 +4020,14 @@ def _open_chrome_app_window(url: str) -> subprocess.Popen | None:
             [
                 path,
                 f"--class={_WM_CLASS}",
-                f"--app={url}",
+                f"--app={chrome_url}",
                 f"--user-data-dir={profile}",
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--start-maximized",
+                # Prefer OS window controls (min/max/close) over Chrome's Close-only CSD.
+                "--enable-features=SystemTitleBar",
+                "--disable-features=CustomTitleBar",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
