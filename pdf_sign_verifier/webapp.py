@@ -1147,8 +1147,9 @@ PAGE = r"""
       downloadsList.innerHTML = items.map((item) => {
         const isPdf = String(item.name || '').toLowerCase().endsWith('.pdf');
         const iconClass = isPdf ? 'pdf' : '';
+        const encoded = encodeURIComponent(String(item.path || ''));
         return `
-          <button type="button" class="dl-item" data-path="${esc(item.path)}" title="Open ${esc(item.name)}">
+          <button type="button" class="dl-item" data-path-enc="${encoded}" title="Open ${esc(item.name)}">
             <span class="dl-icon ${iconClass}" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
             </span>
@@ -1158,6 +1159,20 @@ PAGE = r"""
             </span>
           </button>`;
       }).join('');
+    }
+
+    function setDlStatus(text, isError) {
+      let el = document.getElementById('dlStatus');
+      if (!el && downloadsPanel) {
+        el = document.createElement('div');
+        el.id = 'dlStatus';
+        el.style.cssText = 'padding:0.55rem 1rem 0.75rem;font-size:0.78rem;color:#64748b;border-top:1px solid #edf1f6;';
+        downloadsPanel.appendChild(el);
+      }
+      if (!el) return;
+      el.style.color = isError ? '#b91c1c' : '#64748b';
+      el.textContent = text || '';
+      el.hidden = !text;
     }
 
     async function refreshDownloads() {
@@ -1181,6 +1196,7 @@ PAGE = r"""
     }
 
     async function openDownloadPath(path) {
+      setDlStatus('Opening…', false);
       const res = await fetch('/api/open-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1188,12 +1204,15 @@ PAGE = r"""
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not open file');
+      setDlStatus('Opened in your file viewer.', false);
     }
 
     async function openDownloadsDir() {
+      setDlStatus('Opening Downloads folder…', false);
       const res = await fetch('/api/open-downloads-folder', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not open Downloads folder');
+      setDlStatus('Downloads folder opened.', false);
     }
 
     async function recordDownload(name, path) {
@@ -1211,25 +1230,45 @@ PAGE = r"""
     }
 
     downloadsBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
       e.stopPropagation();
       setDownloadsOpen(!(downloadsPanel && downloadsPanel.classList.contains('open')));
     });
-    downloadsClose?.addEventListener('click', () => setDownloadsOpen(false));
-    openDownloadsFolder?.addEventListener('click', async () => {
+    downloadsClose?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDownloadsOpen(false);
+    });
+    openDownloadsFolder?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       try {
         await openDownloadsDir();
       } catch (err) {
+        setDlStatus(String(err.message || err), true);
         alert(String(err.message || err));
       }
     });
     downloadsList?.addEventListener('click', async (e) => {
       const item = e.target.closest('.dl-item');
       if (!item) return;
-      const path = item.getAttribute('data-path');
-      if (!path) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const encoded = item.getAttribute('data-path-enc') || '';
+      let path = '';
+      try {
+        path = decodeURIComponent(encoded);
+      } catch (_err) {
+        path = encoded;
+      }
+      if (!path) {
+        setDlStatus('Missing file path.', true);
+        return;
+      }
       try {
         await openDownloadPath(path);
       } catch (err) {
+        setDlStatus(String(err.message || err), true);
         alert(String(err.message || err));
       }
     });
@@ -2804,21 +2843,104 @@ def _recent_download_items(limit: int = 15) -> list[dict]:
 
 
 def _open_local_path(path: Path) -> None:
+    """Open a file or folder with the desktop's default handler.
+
+    Important: do NOT use start_new_session here — that drops DBUS/DISPLAY
+    and makes xdg-open silently fail on Cinnamon/GNOME/KDE.
+    """
     resolved = path.expanduser().resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"File not found: {resolved}")
-    opener = shutil.which("xdg-open") or shutil.which("gio")
-    if not opener:
-        raise RuntimeError("No file opener found (xdg-open).")
-    cmd = [opener, str(resolved)]
-    if Path(opener).name == "gio":
-        cmd = [opener, "open", str(resolved)]
-    subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+
+    env = os.environ.copy()
+    # Ensure common session vars survive even if a launcher stripped them.
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "DESKTOP_SESSION"):
+        if key not in env and key in os.environ:
+            env[key] = os.environ[key]
+
+    uri = resolved.as_uri()
+    errors: list[str] = []
+
+    def _try(cmd: list[str]) -> bool:
+        try:
+            proc = subprocess.run(
+                cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=12,
+            )
+            if proc.returncode == 0:
+                return True
+            err = (proc.stderr or "").strip()
+            errors.append(f"{' '.join(cmd)} -> {proc.returncode} {err}")
+        except FileNotFoundError:
+            errors.append(f"missing: {cmd[0]}")
+        except Exception as exc:
+            errors.append(f"{cmd[0]}: {exc}")
+        return False
+
+    # 1) Direct desktop openers
+    if shutil.which("xdg-open") and _try(["xdg-open", str(resolved)]):
+        return
+    if shutil.which("gio") and _try(["gio", "open", str(resolved)]):
+        return
+
+    # 2) File manager DBus (especially reliable for folders)
+    if shutil.which("dbus-send"):
+        if resolved.is_dir():
+            if _try(
+                [
+                    "dbus-send",
+                    "--session",
+                    "--dest=org.freedesktop.FileManager1",
+                    "--type=method_call",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowFolders",
+                    f"array:string:{uri}",
+                    "string:",
+                ]
+            ):
+                return
+        else:
+            if _try(
+                [
+                    "dbus-send",
+                    "--session",
+                    "--dest=org.freedesktop.FileManager1",
+                    "--type=method_call",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowItems",
+                    f"array:string:{uri}",
+                    "string:",
+                ]
+            ):
+                return
+            # Still try opening the parent folder if ShowItems failed.
+            parent_uri = resolved.parent.as_uri()
+            if _try(
+                [
+                    "dbus-send",
+                    "--session",
+                    "--dest=org.freedesktop.FileManager1",
+                    "--type=method_call",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowFolders",
+                    f"array:string:{parent_uri}",
+                    "string:",
+                ]
+            ):
+                return
+
+    # 3) Last resort: ask the browser helper to open file://
+    try:
+        if webbrowser.open(uri):
+            return
+    except Exception as exc:
+        errors.append(f"webbrowser: {exc}")
+
+    raise RuntimeError("Could not open path. " + (" | ".join(errors) if errors else "No opener available."))
 
 
 def _purge_prepared_downloads() -> None:
@@ -2944,8 +3066,10 @@ def api_open_path():
     except Exception:
         return jsonify({"error": "Invalid path"}), 400
     home = Path.home().resolve()
-    if not str(resolved).startswith(str(home)):
-        return jsonify({"error": "Only files in your home folder can be opened."}), 403
+    downloads = _downloads_dir().resolve()
+    allowed_roots = (home, downloads)
+    if not any(str(resolved) == str(root) or str(resolved).startswith(str(root) + os.sep) for root in allowed_roots):
+        return jsonify({"error": "Only files in your home/Downloads folder can be opened."}), 403
     try:
         _open_local_path(resolved)
     except Exception as exc:
@@ -2960,7 +3084,7 @@ def api_open_downloads_folder():
         folder.mkdir(parents=True, exist_ok=True)
         _open_local_path(folder)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": str(exc), "path": str(folder)}), 400
     return jsonify({"opened": True, "path": str(folder)})
 
 
